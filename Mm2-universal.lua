@@ -1,4 +1,4 @@
--- SES_GET3 ULTIMATE v0.74 | Pulse Hub Edition | MM2 + VoteDupe + Anim + Mascot
+-- SES_GET3 ULTIMATE v0.74 | Pulse Hub Edition | MM2 + VoteDupe + Anim + Mascot + Invisible
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -32,6 +32,7 @@ local Config = {
     SkyWormsEnabled = false, SkyWormsCount = 30, SkyWormsSpeed = 100,
     AvatarHeadless = false, AvatarKorblox = false,
     GunSkinEnabled = false, GunSkinModel = "Green", GunSkinSize = 100, GunSkinTurn = 0,
+    Invisible = false,
 }
 local AVATAR_ID = "82234486684685"
 local FlingOnDeathEnabled = false
@@ -169,6 +170,97 @@ local function updateNoclip()
         end
     end
 end
+
+-- ============ INVISIBLE ============
+local invisibleParts = {}
+local invisibleConns = {}
+
+local function setupInvisibleCharacter()
+    local char = LocalPlayer.Character
+    if not char then return end
+    invisibleParts = {}
+    for _, obj in ipairs(char:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Transparency == 0 then
+            table.insert(invisibleParts, obj)
+        elseif obj:IsA("Decal") and obj.Transparency == 0 then
+            table.insert(invisibleParts, obj)
+        end
+    end
+end
+
+local function applyInvisible(state)
+    for _, obj in ipairs(invisibleParts) do
+        if obj and obj.Parent then
+            if obj:IsA("BasePart") then
+                obj.Transparency = state and 0.5 or 0
+            elseif obj:IsA("Decal") then
+                obj.Transparency = state and 0.5 or 0
+            end
+        end
+    end
+end
+
+local function updateInvisible()
+    for _, c in ipairs(invisibleConns) do
+        if c then c:Disconnect() end
+    end
+    invisibleConns = {}
+
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+
+    if not Config.Invisible or not char or not hum or not root then
+        applyInvisible(false)
+        return
+    end
+
+    setupInvisibleCharacter()
+
+    table.insert(invisibleConns, UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Enum.KeyCode.G and not isUnloaded() then
+            Config.Invisible = not Config.Invisible
+            saveConfig()
+            applyInvisible(Config.Invisible)
+        end
+    end))
+
+    table.insert(invisibleConns, RunService.Heartbeat:Connect(function()
+        if isUnloaded() or not Config.Invisible then return end
+        local c = LocalPlayer.Character
+        local h = c and c:FindFirstChildOfClass("Humanoid")
+        local r = c and c:FindFirstChild("HumanoidRootPart")
+        if not (c and h and r) then return end
+
+        local cf = r.CFrame
+        local camOffset = h.CameraOffset
+        local hidden = cf * CFrame.new(0, -200000, 0)
+        r.CFrame = hidden
+        h.CameraOffset = hidden:ToObjectSpace(CFrame.new(cf.Position)).Position
+        RunService.RenderStepped:Wait()
+        r.CFrame = cf
+        h.CameraOffset = camOffset
+    end))
+
+    table.insert(invisibleConns, LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(1)
+        if Config.Invisible then
+            setupInvisibleCharacter()
+            applyInvisible(true)
+        end
+    end))
+
+    applyInvisible(true)
+end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    if Config.Invisible and not isUnloaded() then
+        setupInvisibleCharacter()
+        applyInvisible(true)
+    end
+end)
 
 -- ============ MM2-ЛОГИКА ============
 local playerData = {}
@@ -1407,7 +1499,8 @@ local function ApplyAnimationSpeed()
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hum then return end
     local animator = hum:FindFirstChildOfClass("Animator")
-    if not animator then return end    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+    if not animator then return end
+    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
         pcall(function() track:AdjustSpeed(AnimState.AnimationSpeed) end)
     end
 end
@@ -1931,7 +2024,8 @@ local function buildMM2Gui()
             if isUnloaded() then return end
             state = not state
             TweenService:Create(switchBg, TweenInfo.new(0.15), {
-                BackgroundColor3 = state and COL.accent or COL.toggleOff            }):Play()
+                BackgroundColor3 = state and COL.accent or COL.toggleOff
+            }):Play()
             TweenService:Create(knob, TweenInfo.new(0.15), {
                 Position = state and UDim2.new(1, -22, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)
             }):Play()
@@ -2013,72 +2107,6 @@ local function buildMM2Gui()
         return box
     end
 
-    local function createSegmented(parent, title, options, default, callback)
-        local row = Instance.new("Frame")
-        row.Size = UDim2.new(1, 0, 0, 54)
-        row.BackgroundColor3 = COL.card
-        row.BorderSizePixel = 0
-        row.Parent = parent
-        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
-        local stroke = Instance.new("UIStroke", row)
-        stroke.Color = COL.border
-        stroke.Thickness = 1
-        local t = Instance.new("TextLabel")
-        t.Size = UDim2.new(1, -140, 0, 18)
-        t.Position = UDim2.new(0, 12, 0, 8)
-        t.BackgroundTransparency = 1
-        t.Text = title
-        t.TextColor3 = COL.text
-        t.Font = Enum.Font.GothamMedium
-        t.TextSize = 13
-        t.TextXAlignment = Enum.TextXAlignment.Left
-        t.Parent = row
-        local pill = Instance.new("Frame")
-        pill.Size = UDim2.new(0, 120, 0, 24)
-        pill.Position = UDim2.new(1, -130, 0.5, -12)
-        pill.BackgroundColor3 = COL.bg
-        pill.BorderSizePixel = 0
-        pill.Parent = row
-        Instance.new("UICorner", pill).CornerRadius = UDim.new(0, 7)
-        local pStroke = Instance.new("UIStroke", pill)
-        pStroke.Color = COL.border
-        pStroke.Thickness = 1
-        local n = #options
-        local cur = table.find(options, default) or 1
-        local thumb = Instance.new("Frame")
-        thumb.Size = UDim2.new(1/n, -4, 1, -4)
-        thumb.Position = UDim2.new((cur-1)/n, 2, 0, 2)
-        thumb.BackgroundColor3 = COL.accent
-        thumb.BorderSizePixel = 0
-        thumb.ZIndex = 2
-        thumb.Parent = pill
-        Instance.new("UICorner", thumb).CornerRadius = UDim.new(0, 6)
-        local btns = {}
-        for i, opt in ipairs(options) do
-            local b = Instance.new("TextButton")
-            b.Size = UDim2.fromScale(1/n, 1)
-            b.Position = UDim2.fromScale((i-1)/n, 0)
-            b.BackgroundTransparency = 1
-            b.Text = opt
-            b.TextColor3 = (i == cur) and COL.bg or COL.textDim
-            b.Font = (i == cur) and Enum.Font.GothamBold or Enum.Font.GothamMedium
-            b.TextSize = 11
-            b.ZIndex = 3
-            b.Parent = pill
-            btns[i] = b
-            b.MouseButton1Click:Connect(function()
-                if isUnloaded() or i == cur then return end
-                btns[cur].TextColor3 = COL.textDim
-                btns[cur].Font = Enum.Font.GothamMedium
-                cur = i
-                btns[i].TextColor3 = COL.bg
-                btns[i].Font = Enum.Font.GothamBold
-                TweenService:Create(thumb, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {Position = UDim2.new((i-1)/n, 2, 0, 2)}):Play()
-                if callback then pcall(callback, options[i]) end
-            end)
-        end
-    end
-
     local function createPageHeader(parent, title, subtitle)
         local h = Instance.new("Frame")
         h.Size = UDim2.new(1, 0, 0, 46)
@@ -2144,6 +2172,11 @@ local function buildMM2Gui()
     createSectionLabel(MainPage, "ОСНОВНОЕ")
     createToggle(MainPage, "ESP", "Подсветка ролей", Config.ESP, function(v) Config.ESP = v; saveConfig() end)
     createToggle(MainPage, "Anti-Fling", "Защита от флинга", Config.AntiFling, function(v) Config.AntiFling = v; saveConfig() end)
+    createToggle(MainPage, "Invisible", "Невидимость (клавиша G)", Config.Invisible, function(v)
+        Config.Invisible = v
+        saveConfig()
+        updateInvisible()
+    end)
     createSectionLabel(MainPage, "ИНФО")
     local roleInfoLbl = Instance.new("TextLabel")
     roleInfoLbl.Size = UDim2.new(1, 0, 0, 42)
@@ -3246,6 +3279,9 @@ else
     makeToggle("Anti-Fling", "Защита от флинга", Config.AntiFling, function(v)
         Config.AntiFling = v; saveConfig()
     end)
+    makeToggle("Invisible", "Невидимость (клавиша G)", Config.Invisible, function(v)
+        Config.Invisible = v; saveConfig(); updateInvisible()
+    end)
     makeToggle("Speed Hack", "Ускорение", Config.SpeedHack, function(v)
         Config.SpeedHack = v; updateSpeed(); saveConfig()
     end)
@@ -3283,6 +3319,7 @@ end
 updateSpeed()
 updateJump()
 updateNoclip()
+setupInvisibleCharacter()
 
 task.spawn(function()
     while not isUnloaded() and LocalPlayer.Parent do
@@ -3453,4 +3490,4 @@ if IS_MM2 and MainFrame then
     end)
 end
 
-print("[ses_get3] v0.74 Pulse Hub Edition загружен!")
+print("[ses_get3] v0.74 Pulse Hub Edition + Invisible загружен!")
