@@ -1,4 +1,4 @@
--- SES_GET3 ULTIMATE v0.74 | Pulse Hub Edition | MM2 + VoteDupe + Anim + Mascot + Invisible
+-- SES_GET3 ULTIMATE v0.74 | Pulse Hub Edition | MM2 + VoteDupe + Anim + Mascot + Invisible + GodMode (only non-MM2) + NewESP
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -19,6 +19,11 @@ local Config = {
     NoClip = false, PredictionMultiplier = 2.5, MurdererKillAllOnFull = false,
     SpeedHack = false, SpeedValue = 32, HighJump = false, JumpValue = 120,
     ESPColor = {0, 255, 0},
+    ESPOutlineColor = {255, 255, 255},
+    ESPFillTransparency = 0.5,
+    ESPOutlineTransparency = 0,
+    ESPTeamCheck = false,
+    ESPKey = "RightShift",
     BackTrack = false, BackTrackTarget = "Others", BackTrackStyle = "Ghost",
     BackTrackColor = "Shimmer", BackTrackMaterial = "ForceField",
     BackTrackOutline = true, BackTrackMarker = true, BackTrackDelay = 400,
@@ -33,6 +38,7 @@ local Config = {
     AvatarHeadless = false, AvatarKorblox = false,
     GunSkinEnabled = false, GunSkinModel = "Green", GunSkinSize = 100, GunSkinTurn = 0,
     Invisible = false,
+    GodMode = false,
 }
 local AVATAR_ID = "82234486684685"
 local FlingOnDeathEnabled = false
@@ -261,6 +267,133 @@ LocalPlayer.CharacterAdded:Connect(function()
         applyInvisible(true)
     end
 end)
+
+-- ============ GOD MODE (ТОЛЬКО для НЕ-MM2: паркуры с лазерами, Tower of Hell, Mega Parkour и т.п.) ============
+local godModeConn = nil
+
+local function applyGodMode()
+    if godModeConn then godModeConn:Disconnect(); godModeConn = nil end
+
+    -- GodMode работает ТОЛЬКО вне MM2
+    if IS_MM2 then
+        local hum0 = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum0 then
+            hum0.MaxHealth = 100
+            hum0.Health = 100
+        end
+        return
+    end
+
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+    if not Config.GodMode or not hum then
+        if hum then
+            hum.MaxHealth = 100
+            hum.Health = 100
+        end
+        return
+    end
+
+    hum.MaxHealth = math.huge
+    hum.Health = math.huge
+
+    godModeConn = hum.HealthChanged:Connect(function()
+        if Config.GodMode and hum and hum.Parent then
+            hum.Health = math.huge
+        end
+    end)
+end
+
+local function updateGodMode()
+    applyGodMode()
+end
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    if not IS_MM2 and Config.GodMode and not isUnloaded() then
+        applyGodMode()
+    end
+end)
+
+-- ============ NEW ESP (для не-MM2 игр, с меню выбора цвета) ============
+local espHighlights = {}
+local espEnabledState = Config.ESP
+
+local function applyNewESP(player)
+    if player == LocalPlayer then return end
+
+    local function setup(character)
+        if espHighlights[player] then
+            espHighlights[player]:Destroy()
+            espHighlights[player] = nil
+        end
+        if not espEnabledState then return end
+
+        if Config.ESPTeamCheck and player.Team == LocalPlayer.Team then
+            return
+        end
+
+        local hl = Instance.new("Highlight")
+        hl.Name = "ESP_Highlight"
+        hl.Adornee = character
+        local c = Config.ESPColor or {0, 255, 0}
+        local oc = Config.ESPOutlineColor or {255, 255, 255}
+        hl.FillColor = Color3.fromRGB(c[1], c[2], c[3])
+        hl.OutlineColor = Color3.fromRGB(oc[1], oc[2], oc[3])
+        hl.FillTransparency = Config.ESPFillTransparency or 0.5
+        hl.OutlineTransparency = Config.ESPOutlineTransparency or 0
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent = character
+
+        espHighlights[player] = hl
+    end
+
+    if player.Character then
+        setup(player.Character)
+    end
+    player.CharacterAdded:Connect(setup)
+end
+
+local function removeNewESP(player)
+    if espHighlights[player] then
+        espHighlights[player]:Destroy()
+        espHighlights[player] = nil
+    end
+end
+
+local function refreshAllESP()
+    for _, hl in pairs(espHighlights) do
+        if hl and hl.Parent then hl:Destroy() end
+    end
+    espHighlights = {}
+    if espEnabledState then
+        for _, p in ipairs(Players:GetPlayers()) do
+            applyNewESP(p)
+        end
+    end
+end
+
+local function updateESPColor()
+    local c = Config.ESPColor or {0, 255, 0}
+    local oc = Config.ESPOutlineColor or {255, 255, 255}
+    for _, hl in pairs(espHighlights) do
+        if hl and hl.Parent then
+            hl.FillColor = Color3.fromRGB(c[1], c[2], c[3])
+            hl.OutlineColor = Color3.fromRGB(oc[1], oc[2], oc[3])
+            hl.FillTransparency = Config.ESPFillTransparency or 0.5
+            hl.OutlineTransparency = Config.ESPOutlineTransparency or 0
+        end
+    end
+end
+
+if not IS_MM2 then
+    for _, player in ipairs(Players:GetPlayers()) do
+        applyNewESP(player)
+    end
+    Players.PlayerAdded:Connect(applyNewESP)
+    Players.PlayerRemoving:Connect(removeNewESP)
+end
 
 -- ============ MM2-ЛОГИКА ============
 local playerData = {}
@@ -781,7 +914,8 @@ local function magicBulletShoot(tool)
     local murderer = getMurdererPlayer()
     if not murderer or not murderer.Character then return end
     local root = murderer.Character:FindFirstChild("HumanoidRootPart")
-    if not root then return end    local ping = getPing()
+    if not root then return end
+    local ping = getPing()
     local predictTime = (ping / 1000) * Config.PredictionMultiplier
     local v = root.Velocity
     local speed = v.Magnitude
@@ -1213,105 +1347,107 @@ Players.PlayerAdded:Connect(function(p)
     end
 end)
 
--- ============ ESP ============
-local function setupESP(player)
-    if player == LocalPlayer then return end
-    local function applyESP(character)
-        task.wait(0.3)
-        if isUnloaded() then return end
-        if not character or not character.Parent then return end
-        if character:FindFirstChild("MM2_Highlight") then character.MM2_Highlight:Destroy() end
-        if character:FindFirstChild("MM2_ESP_Text") then character.MM2_ESP_Text:Destroy() end
-        if not Config.ESP then return end
+-- ============ ESP (MM2 только — старый) ============
+if IS_MM2 then
+    local function setupESP(player)
+        if player == LocalPlayer then return end
+        local function applyESP(character)
+            task.wait(0.3)
+            if isUnloaded() then return end
+            if not character or not character.Parent then return end
+            if character:FindFirstChild("MM2_Highlight") then character.MM2_Highlight:Destroy() end
+            if character:FindFirstChild("MM2_ESP_Text") then character.MM2_ESP_Text:Destroy() end
+            if not Config.ESP then return end
 
-        local function getESPColor()
-            local c = Config.ESPColor or {0, 255, 0}
-            return Color3.fromRGB(c[1], c[2], c[3])
-        end
-
-        local head = character:FindFirstChild("Head") or character.PrimaryPart
-        if not head then return end
-
-        local hl = Instance.new("Highlight")
-        hl.Name = "MM2_Highlight"
-        hl.OutlineTransparency = 0.2
-        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        hl.Parent = character
-
-        local bb = Instance.new("BillboardGui")
-        bb.Name = "MM2_ESP_Text"
-        bb.Size = UDim2.new(0, 200, 0, 40)
-        bb.AlwaysOnTop = true
-        bb.Adornee = head
-        bb.StudsOffset = Vector3.new(0, 3, 0)
-        bb.Parent = character
-
-        local lbl = Instance.new("TextLabel")
-        lbl.Size = UDim2.new(1, 0, 1, 0)
-        lbl.BackgroundTransparency = 1
-        lbl.Font = Enum.Font.GothamBold
-        lbl.TextSize = 14
-        lbl.TextStrokeTransparency = 0.3
-        lbl.Parent = bb
-
-        task.spawn(function()
-            while character and character.Parent and hl and lbl and not isUnloaded() do
-                local name = player.Name
-                local displayName = player.DisplayName or name
-                local espColor = getESPColor()
-
-                if not Config.ESP then
-                    lbl.Text = ""; hl.FillTransparency = 1; hl.OutlineTransparency = 1
-                elseif IS_MM2 then
-                    if not IsAlive(name) then
-                        lbl.Text = name .. " [Мёртв 💀]"
-                        hl.FillColor = Color3.fromRGB(120, 120, 120)
-                        lbl.TextColor3 = Color3.fromRGB(150, 150, 150)
-                        hl.FillTransparency = 0.7
-                    elseif name == murdererName then
-                        lbl.Text = name .. " [Декстер 🔪]"
-                        hl.FillColor = Color3.fromRGB(225, 0, 0)
-                        lbl.TextColor3 = Color3.fromRGB(255, 30, 30)
-                        hl.FillTransparency = 0.5
-                    elseif name == sheriffName and isSheriffAlive() then
-                        lbl.Text = name .. " [Шериф 🎯]"
-                        hl.FillColor = Color3.fromRGB(0, 0, 225)
-                        lbl.TextColor3 = Color3.fromRGB(30, 144, 255)
-                        hl.FillTransparency = 0.5
-                    elseif not isSheriffAlive() and playerHasGun(player) then
-                        lbl.Text = name .. " [Солнечный 🌟]"
-                        hl.FillColor = Color3.fromRGB(255, 215, 0)
-                        lbl.TextColor3 = Color3.fromRGB(255, 215, 0)
-                        hl.FillTransparency = 0.5
-                    else
-                        lbl.Text = name .. " [Невинный]"
-                        hl.FillColor = Color3.fromRGB(0, 225, 0)
-                        lbl.TextColor3 = Color3.fromRGB(50, 205, 50)
-                        hl.FillTransparency = 0.5
-                    end
-                else
-                    local hum = character:FindFirstChildOfClass("Humanoid")
-                    local hp = hum and math.floor(hum.Health) or 0
-                    local maxHp = hum and math.floor(hum.MaxHealth) or 100
-                    local distance = 0
-                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("HumanoidRootPart") then
-                        distance = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - character.HumanoidRootPart.Position).Magnitude)
-                    end
-                    lbl.Text = displayName .. "\n" .. hp .. "/" .. maxHp .. " HP  |  " .. distance .. "m"
-                    lbl.TextColor3 = espColor
-                    hl.FillColor = espColor
-                    hl.FillTransparency = 0.5
-                    hl.OutlineTransparency = 0.2
-                end
-                task.wait(0.05)
+            local function getESPColor()
+                local c = Config.ESPColor or {0, 255, 0}
+                return Color3.fromRGB(c[1], c[2], c[3])
             end
-        end)
+
+            local head = character:FindFirstChild("Head") or character.PrimaryPart
+            if not head then return end
+
+            local hl = Instance.new("Highlight")
+            hl.Name = "MM2_Highlight"
+            hl.OutlineTransparency = 0.2
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Parent = character
+
+            local bb = Instance.new("BillboardGui")
+            bb.Name = "MM2_ESP_Text"
+            bb.Size = UDim2.new(0, 200, 0, 40)
+            bb.AlwaysOnTop = true
+            bb.Adornee = head
+            bb.StudsOffset = Vector3.new(0, 3, 0)
+            bb.Parent = character
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, 0, 1, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextSize = 14
+            lbl.TextStrokeTransparency = 0.3
+            lbl.Parent = bb
+
+            task.spawn(function()
+                while character and character.Parent and hl and lbl and not isUnloaded() do
+                    local name = player.Name
+                    local displayName = player.DisplayName or name
+                    local espColor = getESPColor()
+
+                    if not Config.ESP then
+                        lbl.Text = ""; hl.FillTransparency = 1; hl.OutlineTransparency = 1
+                    elseif IS_MM2 then
+                        if not IsAlive(name) then
+                            lbl.Text = name .. " [Мёртв 💀]"
+                            hl.FillColor = Color3.fromRGB(120, 120, 120)
+                            lbl.TextColor3 = Color3.fromRGB(150, 150, 150)
+                            hl.FillTransparency = 0.7
+                        elseif name == murdererName then
+                            lbl.Text = name .. " [Декстер 🔪]"
+                            hl.FillColor = Color3.fromRGB(225, 0, 0)
+                            lbl.TextColor3 = Color3.fromRGB(255, 30, 30)
+                            hl.FillTransparency = 0.5
+                        elseif name == sheriffName and isSheriffAlive() then
+                            lbl.Text = name .. " [Шериф 🎯]"
+                            hl.FillColor = Color3.fromRGB(0, 0, 225)
+                            lbl.TextColor3 = Color3.fromRGB(30, 144, 255)
+                            hl.FillTransparency = 0.5
+                        elseif not isSheriffAlive() and playerHasGun(player) then
+                            lbl.Text = name .. " [Солнечный 🌟]"
+                            hl.FillColor = Color3.fromRGB(255, 215, 0)
+                            lbl.TextColor3 = Color3.fromRGB(255, 215, 0)
+                            hl.FillTransparency = 0.5
+                        else
+                            lbl.Text = name .. " [Невинный]"
+                            hl.FillColor = Color3.fromRGB(0, 225, 0)
+                            lbl.TextColor3 = Color3.fromRGB(50, 205, 50)
+                            hl.FillTransparency = 0.5
+                        end
+                    else
+                        local hum = character:FindFirstChildOfClass("Humanoid")
+                        local hp = hum and math.floor(hum.Health) or 0
+                        local maxHp = hum and math.floor(hum.MaxHealth) or 100
+                        local distance = 0
+                        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("HumanoidRootPart") then
+                            distance = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - character.HumanoidRootPart.Position).Magnitude)
+                        end
+                        lbl.Text = displayName .. "\n" .. hp .. "/" .. maxHp .. " HP  |  " .. distance .. "m"
+                        lbl.TextColor3 = espColor
+                        hl.FillColor = espColor
+                        hl.FillTransparency = 0.5
+                        hl.OutlineTransparency = 0.2
+                    end
+                    task.wait(0.05)
+                end
+            end)
+        end
+        if player.Character then applyESP(player.Character) end
+        player.CharacterAdded:Connect(applyESP)
     end
-    if player.Character then applyESP(player.Character) end
-    player.CharacterAdded:Connect(applyESP)
+    for _, p in ipairs(Players:GetPlayers()) do setupESP(p) end
+    Players.PlayerAdded:Connect(setupESP)
 end
-for _, p in ipairs(Players:GetPlayers()) do setupESP(p) end
-Players.PlayerAdded:Connect(setupESP)
 
 -- ============ ESP GUNDROP ============
 if IS_MM2 then
@@ -3141,10 +3277,11 @@ local function buildMM2Gui()
     end)
 end
 
--- Строим GUI только для MM2
+-- Строим GUI
 if IS_MM2 then
     buildMM2Gui()
 else
+    -- ============ МЕНЮ ДЛЯ ДРУГИХ ИГР (НЕ-MM2) — НЕЛЬЗЯ ПЕРЕТАСКИВАТЬ ============
     local otherGui = Instance.new("ScreenGui")
     otherGui.Name = "ses_get3_other"
     otherGui.ResetOnSpawn = false
@@ -3162,8 +3299,8 @@ else
     Frame.BackgroundColor3 = Color3.fromRGB(14, 14, 16)
     Frame.BackgroundTransparency = 0.15
     Frame.BorderSizePixel = 0
-    Frame.Active = true
-    Frame.Draggable = true
+    Frame.Active = false
+    Frame.Draggable = false
     Frame.Parent = otherGui
     Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 12)
     local stroke = Instance.new("UIStroke", Frame)
@@ -3174,10 +3311,10 @@ else
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 40)
     title.BackgroundTransparency = 1
-    title.Text = "ses_get3 HUB👑 | Другие игры"
+    title.Text = "ses_get3 HUB👑 | Другие игры  (RightShift — скрыть меню)"
     title.TextColor3 = Color3.fromRGB(255, 215, 0)
     title.Font = Enum.Font.GothamBold
-    title.TextSize = 16
+    title.TextSize = 15
     title.Parent = Frame
 
     local scroll = Instance.new("ScrollingFrame")
@@ -3273,14 +3410,172 @@ else
         end)
     end
 
-    makeToggle("ESP", "Подсветка игроков", Config.ESP, function(v)
-        Config.ESP = v; saveConfig()
+    local function makeSlider(name, parent, initialValue, callback)
+        local container = Instance.new("Frame")
+        container.Size = UDim2.new(1, -20, 0, 38)
+        container.BackgroundTransparency = 1
+        container.Parent = parent
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 0, 16)
+        label.BackgroundTransparency = 1
+        label.Text = name .. ": " .. initialValue
+        label.TextColor3 = Color3.fromRGB(220, 220, 220)
+        label.Font = Enum.Font.Gotham
+        label.TextSize = 12
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = container
+
+        local sliderBg = Instance.new("Frame")
+        sliderBg.Size = UDim2.new(1, 0, 0, 8)
+        sliderBg.Position = UDim2.new(0, 0, 0, 22)
+        sliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+        sliderBg.BorderSizePixel = 0
+        sliderBg.Parent = container
+        Instance.new("UICorner", sliderBg).CornerRadius = UDim.new(1, 0)
+
+        local fill = Instance.new("Frame")
+        fill.Size = UDim2.new(initialValue / 255, 0, 1, 0)
+        fill.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+        fill.BorderSizePixel = 0
+        fill.Parent = sliderBg
+        Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+        local dragging = false
+        local value = initialValue
+
+        local function update(input)
+            local pos = math.clamp((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X, 0, 1)
+            value = math.floor(pos * 255)
+            fill.Size = UDim2.new(pos, 0, 1, 0)
+            label.Text = name .. ": " .. value
+            callback(value)
+        end
+
+        sliderBg.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                update(input)
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                update(input)
+            end
+        end)
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+            end
+        end)
+    end
+
+    makeToggle("ESP (новый)", "Подсветка всех игроков (Highlight)", Config.ESP, function(v)
+        Config.ESP = v
+        espEnabledState = v
+        saveConfig()
+        refreshAllESP()
     end)
-    makeToggle("Anti-Fling", "Защита от флинга", Config.AntiFling, function(v)
-        Config.AntiFling = v; saveConfig()
+    makeToggle("ESP TeamCheck", "Не подсвечивать тиммейтов", Config.ESPTeamCheck, function(v)
+        Config.ESPTeamCheck = v
+        saveConfig()
+        refreshAllESP()
     end)
+
+    local espColorLabel = Instance.new("TextLabel")
+    espColorLabel.Size = UDim2.new(1, -20, 0, 18)
+    espColorLabel.BackgroundTransparency = 1
+    espColorLabel.Text = "Цвет ESP (R/G/B):"
+    espColorLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+    espColorLabel.Font = Enum.Font.GothamBold
+    espColorLabel.TextSize = 12
+    espColorLabel.TextXAlignment = Enum.TextXAlignment.Left
+    espColorLabel.Parent = scroll
+
+    local espColorPreview = Instance.new("Frame")
+    espColorPreview.Size = UDim2.new(1, -20, 0, 24)
+    espColorPreview.BackgroundColor3 = Color3.fromRGB(Config.ESPColor[1], Config.ESPColor[2], Config.ESPColor[3])
+    espColorPreview.BorderSizePixel = 0
+    espColorPreview.Parent = scroll
+    Instance.new("UICorner", espColorPreview).CornerRadius = UDim.new(0, 6)
+
+    local espRGB = {R = Config.ESPColor[1], G = Config.ESPColor[2], B = Config.ESPColor[3]}
+
+    local function refreshESPColor()
+        Config.ESPColor = {espRGB.R, espRGB.G, espRGB.B}
+        saveConfig()
+        espColorPreview.BackgroundColor3 = Color3.fromRGB(espRGB.R, espRGB.G, espRGB.B)
+        updateESPColor()
+    end
+
+    makeSlider("R", scroll, espRGB.R, function(v) espRGB.R = v; refreshESPColor() end)
+    makeSlider("G", scroll, espRGB.G, function(v) espRGB.G = v; refreshESPColor() end)
+    makeSlider("B", scroll, espRGB.B, function(v) espRGB.B = v; refreshESPColor() end)
+
+    local presetLabel = Instance.new("TextLabel")
+    presetLabel.Size = UDim2.new(1, -20, 0, 16)
+    presetLabel.BackgroundTransparency = 1
+    presetLabel.Text = "Готовые цвета:"
+    presetLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+    presetLabel.Font = Enum.Font.Gotham
+    presetLabel.TextSize = 12
+    presetLabel.TextXAlignment = Enum.TextXAlignment.Left
+    presetLabel.Parent = scroll
+
+    local presetsGrid = Instance.new("Frame")
+    presetsGrid.Size = UDim2.new(1, -20, 0, 0)
+    presetsGrid.AutomaticSize = Enum.AutomaticSize.Y
+    presetsGrid.BackgroundTransparency = 1
+    presetsGrid.Parent = scroll
+    local presetsLayout = Instance.new("UIGridLayout")
+    presetsLayout.CellSize = UDim2.new(0, 55, 0, 28)
+    presetsLayout.CellPadding = UDim2.new(0, 5, 0, 5)
+    presetsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    presetsLayout.Parent = presetsGrid
+
+    local presets = {
+        {name = "Зелёный",  color = Color3.fromRGB(0, 255, 0)},
+        {name = "Красный",  color = Color3.fromRGB(255, 0, 0)},
+        {name = "Синий",    color = Color3.fromRGB(0, 150, 255)},
+        {name = "Розовый",  color = Color3.fromRGB(255, 0, 255)},
+        {name = "Жёлтый",   color = Color3.fromRGB(255, 255, 0)},
+        {name = "Белый",    color = Color3.fromRGB(255, 255, 255)},
+        {name = "Оранжевый",color = Color3.fromRGB(255, 140, 0)},
+        {name = "Фиолетовый",color = Color3.fromRGB(150, 0, 255)},
+    }
+
+    for _, preset in ipairs(presets) do
+        local btn = Instance.new("TextButton")
+        btn.BackgroundColor3 = preset.color
+        btn.BorderSizePixel = 0
+        btn.Text = ""
+        btn.AutoButtonColor = true
+        btn.Parent = presetsGrid
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+        btn.MouseButton1Click:Connect(function()
+            espRGB.R = math.floor(preset.color.R * 255)
+            espRGB.G = math.floor(preset.color.G * 255)
+            espRGB.B = math.floor(preset.color.B * 255)
+            refreshESPColor()
+        end)
+    end
+
+    makeSlider("Заливка", scroll, math.floor(Config.ESPFillTransparency * 255), function(v)
+        Config.ESPFillTransparency = v / 255
+        saveConfig()
+        updateESPColor()
+    end)
+    makeSlider("Обводка", scroll, math.floor(Config.ESPOutlineTransparency * 255), function(v)
+        Config.ESPOutlineTransparency = v / 255
+        saveConfig()
+        updateESPColor()
+    end)
+
     makeToggle("Invisible", "Невидимость (клавиша G)", Config.Invisible, function(v)
         Config.Invisible = v; saveConfig(); updateInvisible()
+    end)
+    makeToggle("God Mode", "Бессмертие — для паркуров с лазерами (Tower of Hell, Mega Parkour и т.п.)", Config.GodMode, function(v)
+        Config.GodMode = v; saveConfig(); updateGodMode()
     end)
     makeToggle("Speed Hack", "Ускорение", Config.SpeedHack, function(v)
         Config.SpeedHack = v; updateSpeed(); saveConfig()
@@ -3300,6 +3595,24 @@ else
         Config.NoClip = v; updateNoclip(); saveConfig()
     end)
 
+    local godHint = Instance.new("TextLabel")
+    godHint.Size = UDim2.new(1, -20, 0, 70)
+    godHint.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
+    godHint.BorderSizePixel = 0
+    godHint.Text = "🛡️ God Mode (Бессмертие)\n\nФункция предназначена для паркуров с лазерами и ловушками: Tower of Hell, Mega Parkour, Escape Room и подобные. Персонаж не погибает от лазеров, шипов, падений и воды."
+    godHint.TextColor3 = Color3.fromRGB(235, 235, 240)
+    godHint.Font = Enum.Font.Gotham
+    godHint.TextSize = 11
+    godHint.TextWrapped = true
+    godHint.TextYAlignment = Enum.TextYAlignment.Top
+    godHint.Parent = scroll
+    Instance.new("UICorner", godHint).CornerRadius = UDim.new(0, 10)
+    local godHintPad = Instance.new("UIPadding", godHint)
+    godHintPad.PaddingLeft = UDim.new(0, 10)
+    godHintPad.PaddingRight = UDim.new(0, 10)
+    godHintPad.PaddingTop = UDim.new(0, 8)
+    godHintPad.PaddingBottom = UDim.new(0, 8)
+
     local toggleBtn = Instance.new("TextButton")
     toggleBtn.Size = UDim2.new(0, 50, 0, 50)
     toggleBtn.Position = UDim2.new(0, 10, 0.5, -25)
@@ -3313,6 +3626,13 @@ else
     toggleBtn.MouseButton1Click:Connect(function()
         Frame.Visible = not Frame.Visible
     end)
+
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Enum.KeyCode.RightShift then
+            Frame.Visible = not Frame.Visible
+        end
+    end)
 end
 
 -- ============ СЛУЖЕБНЫЕ ЦИКЛЫ ============
@@ -3320,6 +3640,9 @@ updateSpeed()
 updateJump()
 updateNoclip()
 setupInvisibleCharacter()
+if not IS_MM2 then
+    applyGodMode()
+end
 
 task.spawn(function()
     while not isUnloaded() and LocalPlayer.Parent do
@@ -3490,4 +3813,4 @@ if IS_MM2 and MainFrame then
     end)
 end
 
-print("[ses_get3] v0.74 Pulse Hub Edition + Invisible загружен!")
+print("[ses_get3] v0.74 Pulse Hub Edition + Invisible + GodMode (только не-MM2) + NewESP загружен!")
