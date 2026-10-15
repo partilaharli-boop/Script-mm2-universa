@@ -1,4 +1,4 @@
--- SES_GET3 ULTIMATE v0.78 | Pulse Hub Edition + VISUAL TAB v2 + Fixed Headless/Korblox + Night Sky + SCAM MURDERER
+-- SES_GET3 ULTIMATE v0.79 | Pulse Hub Edition + VISUAL TAB v2 + Fixed Headless/Korblox + Night Sky + SCAM MURDERER + VOTE DUPE
 -- MM2 + VoteDupe + Anim + Mascot + Invisible + GodMode (only non-MM2) + NewESP + Visual
 
 local Players = game:GetService("Players")
@@ -33,7 +33,6 @@ local Config = {
     GunSkinEnabled = false, GunSkinModel = "Green", GunSkinSize = 100, GunSkinTurn = 0,
     Invisible = false,
     GodMode = false,
-    -- SCAM MURDERER
     ScamMurderer = false,
     ScamMurdererRange = 40,
     ScamMurdererAutoOff = true,
@@ -321,7 +320,7 @@ local VisualState = {
     gunskin = { conn = nil, original = nil },
 }
 
--- ---------- SHADER (с поддержкой фона/неба) ----------
+-- ---------- SHADER ----------
 local ShaderPresets = {
     Natural    = {Brightness = 0,    Contrast = 0,    Saturation = 0,    Tint = Color3.fromRGB(255,255,255), Bloom = 0,    Sky = nil},
     Vivid      = {Brightness = 0.05, Contrast = 0.15, Saturation = 0.35, Tint = Color3.fromRGB(255,240,230), Bloom = 0.4,  Sky = nil},
@@ -738,7 +737,7 @@ local function buildSkyWorms()
     end)
 end
 
--- ---------- AVATAR (Headless + Korblox) ----------
+-- ---------- AVATAR ----------
 local function clearAvatarConns()
     for _, c in ipairs(VisualState.avatar.conns) do
         if c then c:Disconnect() end
@@ -984,7 +983,7 @@ if not IS_MM2 then
     Players.PlayerRemoving:Connect(removeNewESP)
 end
 
--- ============ MM2-ЛОГИКА ============
+-- ============ MM2 LOGIC ============
 local playerData = {}
 local murdererName, sheriffName, heroName = "", "", ""
 
@@ -1151,7 +1150,7 @@ LocalPlayer.CharacterAdded:Connect(function()
     end
 end)
 
--- ============ ФАРМ ============
+-- ============ FARM ============
 local farmingActive = false
 local currentCoinsCollected, maxCoinsInRound = 0, 0
 local allCoinsCollected = false
@@ -1360,7 +1359,7 @@ if IS_MM2 then
     end)
 end
 
--- ============ ФЛИНГ ============
+-- ============ FLING ============
 local FlingActive = false
 local OldPos = nil
 local FPDH = workspace.FallenPartsDestroyHeight
@@ -1550,7 +1549,7 @@ local function StopFling()
     end
 end
 
--- ============ СТРЕЛЬБА ============
+-- ============ SHOOTING ============
 local magicBulletToolConn = nil
 local disabledGunClients = {}
 local gunMonitorConns = {}
@@ -2152,7 +2151,7 @@ if IS_MM2 then
     end)
 end
 
--- ============ АНИМАЦИИ ============
+-- ============ ANIMATIONS ============
 local OriginalAnimations = {}
 local AnimState = {
     LastEmote = "", EmoteSpeed = 1, Looped = false, Reversed = false,
@@ -2288,7 +2287,7 @@ local function ApplyAnimationSpeed()
     end
 end
 
--- ============ ТАБЛИЦЫ ============
+-- ============ ANIMATION TABLES ============
 local Emotes = {
     ['Fashion'] = 3333331310, ["Baby Dance"] = 4265725525, ["Cha-Cha"] = 6862001787,
     ['Monkey'] = 3333499508, ['Shuffle'] = 4349242221, ["Top Rock"] = 3361276673,
@@ -2479,7 +2478,7 @@ local function applyBundle(name)
     end
 end
 
--- ============ АВТОЗАГРУЗКА ============
+-- ============ AUTO LOAD ============
 task.spawn(function()
     local ok, err = pcall(function()
         local emoteJson = game:HttpGet("https://raw.githubusercontent.com/7yd7/sniper-Emote/refs/heads/test/EmoteSniper.json")
@@ -2938,13 +2937,14 @@ local function buildMM2Gui()
     local BattleBtn   = createNavBtn("⚔️", "Бой", 2);       local BattlePage   = createPage(2)
     local FarmBtn     = createNavBtn("🛒", "Фарм", 3);      local FarmPage     = createPage(3)
     local FlingBtn    = createNavBtn("⚡", "Флинг", 4);     local FlingPage    = createPage(4)
-    local AnimBtn     = createNavBtn("🎬", "Анимации", 5);  local AnimPage     = createPage(5)
-    local VisBtn      = createNavBtn("🎨", "Визуал", 6);    local VisPage      = createPage(6)
-    local FeaturesBtn = createNavBtn("🧩", "Фишки", 7);     local FeaturesPage = createPage(7)
-    local SettingsBtn = createNavBtn("⚙️", "Настройки", 8); local SettingsPage = createPage(8)
+    local VoteBtn     = createNavBtn("🗳️", "Vote Dupe", 5); local VotePage     = createPage(5)
+    local AnimBtn     = createNavBtn("🎬", "Анимации", 6);  local AnimPage     = createPage(6)
+    local VisBtn      = createNavBtn("🎨", "Визуал", 7);    local VisPage      = createPage(7)
+    local FeaturesBtn = createNavBtn("🧩", "Фишки", 8);     local FeaturesPage = createPage(8)
+    local SettingsBtn = createNavBtn("⚙️", "Настройки", 9); local SettingsPage = createPage(9)
 
-    pages = {MainPage, BattlePage, FarmPage, FlingPage, AnimPage, VisPage, FeaturesPage, SettingsPage}
-    navButtons = {MainBtn, BattleBtn, FarmBtn, FlingBtn, AnimBtn, VisBtn, FeaturesBtn, SettingsBtn}
+    pages = {MainPage, BattlePage, FarmPage, FlingPage, VotePage, AnimPage, VisPage, FeaturesPage, SettingsPage}
+    navButtons = {MainBtn, BattleBtn, FarmBtn, FlingBtn, VoteBtn, AnimBtn, VisBtn, FeaturesBtn, SettingsBtn}
     for i, b in ipairs(navButtons) do
         b.MouseButton1Click:Connect(function() selectPage(i) end)
     end
@@ -3079,6 +3079,358 @@ local function buildMM2Gui()
         end
     end)
     createActionBtn(FlingPage, "⛔ Остановить", Color3.fromRGB(150, 50, 50), StopFling)
+
+    -- ============ VOTE DUPE ============
+    local voteActivePad
+    local voteLoopThread
+    local voteVotesCast = 0
+    local voteCards = {}
+
+    local function getVoteLobby()
+        return workspace:FindFirstChild("RegularLobby") or workspace:FindFirstChild("Lobby")
+    end
+    local function getVotePad(i)
+        local lobby = getVoteLobby()
+        if not lobby then return nil end
+        return lobby:FindFirstChild("VotePad" .. i) or lobby:FindFirstChild("VotePad" .. i, true)
+    end
+    local function getVotePadCF(pad)
+        if not pad then return nil end
+        if pad:IsA("BasePart") then return pad.CFrame end
+        if pad:IsA("Model") then return pad:GetPivot() end
+        local part = pad:FindFirstChildWhichIsA("BasePart", true)
+        return part and part.CFrame
+    end
+
+    local voteGuisByAdornee = {}
+    local function scanVoteGuis()
+        table.clear(voteGuisByAdornee)
+        local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        if not playerGui then return end
+        for _, g in ipairs(playerGui:GetDescendants()) do
+            if (g:IsA("SurfaceGui") or g:IsA("BillboardGui")) and g.Adornee then
+                local list = voteGuisByAdornee[g.Adornee] or {}
+                voteGuisByAdornee[g.Adornee] = list
+                table.insert(list, g)
+            end
+        end
+    end
+    local function getVotePadGuis(pad)
+        local out = {}
+        for adornee, list in pairs(voteGuisByAdornee) do
+            if adornee == pad or adornee:IsDescendantOf(pad) then
+                for _, g in ipairs(list) do table.insert(out, g) end
+            end
+        end
+        local voteInfo = pad:FindFirstChild("VoteInfoGui", true)
+        if voteInfo then table.insert(out, voteInfo) end
+        return out
+    end
+    local function readVotePad(pad)
+        if not pad then return nil, nil end
+        local map, votes
+        for _, g in ipairs(getVotePadGuis(pad)) do
+            if g:IsA("LayerCollector") and not g.Enabled then continue end
+            local box = g:FindFirstChild("Container", true) or g
+            local function hex(name)
+                local o = box:FindFirstChild(name, true)
+                if o and (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Text ~= "" then
+                    return o.Text
+                end
+            end
+            map = map or hex("MapName")
+            local v = hex("Votes")
+            if v and (not votes or (tonumber(v:match("%d+")) or 0) > (tonumber(votes:match("%d+")) or 0)) then
+                votes = v
+            end
+        end
+        return map, votes
+    end
+    local function findVotePadImage(pad)
+        if not pad then return nil end
+        local best, bestScore = nil, 0
+        for _, d in ipairs(pad:GetDescendants()) do
+            local img, name = nil, d.Name:lower()
+            if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+                img = d.Image
+                if img and img ~= "" and d.ImageTransparency < 0.95 then
+                    local score = (name:find("map") or name:find("thumb") or name:find("preview")) and 3
+                        or ((name:find("image") or name:find("icon") or name:find("picture")) and 2 or 1)
+                    if score > bestScore then best, bestScore = img, score end
+                end
+            elseif d:IsA("Decal") or d:IsA("Texture") then
+                img = d.Texture
+                if img and img ~= "" then
+                    local score = (name:find("map") or name:find("thumb")) and 3 or 1
+                    if score > bestScore then best, bestScore = img, score end
+                end
+            end
+        end
+        return best
+    end
+
+    createPageHeader(VotePage, "Vote Dupe Map", "Зацикливание голосования за карту")
+    createSectionLabel(VotePage, "ВЫБОР КАРТЫ")
+
+    local voteGrid = Instance.new("Frame")
+    voteGrid.Size = UDim2.new(1, 0, 0, 0)
+    voteGrid.AutomaticSize = Enum.AutomaticSize.Y
+    voteGrid.BackgroundTransparency = 1
+    voteGrid.Parent = VotePage
+    local voteGridLayout = Instance.new("UIGridLayout")
+    voteGridLayout.CellSize = UDim2.new(1, 0, 0, 76)
+    voteGridLayout.CellPadding = UDim2.new(0, 0, 0, 8)
+    voteGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    voteGridLayout.Parent = voteGrid
+
+    for i = 1, 3 do
+        local card = Instance.new("TextButton")
+        card.Size = UDim2.new(1, 0, 1, 0)
+        card.BackgroundColor3 = COL.card
+        card.Text = ""
+        card.BorderSizePixel = 0
+        card.LayoutOrder = i
+        card.AutoButtonColor = false
+        card.ClipsDescendants = true
+        card.Parent = voteGrid
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+        local cardStroke = Instance.new("UIStroke", card)
+        cardStroke.Color = COL.border
+        cardStroke.Thickness = 1
+
+        local thumb = Instance.new("Frame")
+        thumb.Size = UDim2.new(0, 76, 0, 76)
+        thumb.BackgroundColor3 = COL.card
+        thumb.ClipsDescendants = true
+        thumb.ZIndex = 2
+        thumb.Parent = card
+        Instance.new("UICorner", thumb).CornerRadius = UDim.new(0, 10)
+
+        local ph = Instance.new("TextLabel")
+        ph.Text = "?"
+        ph.Font = Enum.Font.GothamBlack
+        ph.TextSize = 22
+        ph.TextColor3 = COL.textDim
+        ph.BackgroundTransparency = 1
+        ph.Size = UDim2.fromScale(1, 1)
+        ph.ZIndex = 3
+        ph.Parent = thumb
+
+        local img = Instance.new("ImageLabel")
+        img.Size = UDim2.fromScale(1, 1)
+        img.BackgroundTransparency = 1
+        img.ScaleType = Enum.ScaleType.Crop
+        img.ImageColor3 = Color3.fromRGB(220, 220, 220)
+        img.ImageTransparency = 1
+        img.ZIndex = 4
+        img.Parent = thumb
+        Instance.new("UICorner", img).CornerRadius = UDim.new(0, 10)
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Size = UDim2.new(1, -90, 0, 22)
+        nameLbl.Position = UDim2.new(0, 86, 0, 10)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Text = "LOADING..."
+        nameLbl.TextColor3 = COL.text
+        nameLbl.Font = Enum.Font.GothamBold
+        nameLbl.TextSize = 14
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLbl.ZIndex = 3
+        nameLbl.Parent = card
+
+        local votesLbl = Instance.new("TextLabel")
+        votesLbl.Size = UDim2.new(1, -90, 0, 16)
+        votesLbl.Position = UDim2.new(0, 86, 0, 34)
+        votesLbl.BackgroundTransparency = 1
+        votesLbl.Text = "votes —"
+        votesLbl.TextColor3 = COL.textDim
+        votesLbl.Font = Enum.Font.Gotham
+        votesLbl.TextSize = 12
+        votesLbl.TextXAlignment = Enum.TextXAlignment.Left
+        votesLbl.ZIndex = 3
+        votesLbl.Parent = card
+
+        local statusLbl = Instance.new("TextLabel")
+        statusLbl.Size = UDim2.new(1, -90, 0, 14)
+        statusLbl.Position = UDim2.new(0, 86, 0, 54)
+        statusLbl.BackgroundTransparency = 1
+        statusLbl.Text = "idle"
+        statusLbl.TextColor3 = COL.textDim
+        statusLbl.Font = Enum.Font.GothamBold
+        statusLbl.TextSize = 11
+        statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+        statusLbl.ZIndex = 3
+        statusLbl.Parent = card
+
+        voteCards[i] = {
+            card = card, stroke = cardStroke, thumb = thumb, img = img, ph = ph,
+            name = nameLbl, votes = votesLbl, status = statusLbl, image = nil, map = nil,
+        }
+
+        card.MouseEnter:Connect(function()
+            TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.cardHover}):Play()
+        end)
+        card.MouseLeave:Connect(function()
+            TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.card}):Play()
+        end)
+    end
+
+    local function relayoutVoteCards()
+        for i, c in ipairs(voteCards) do
+            local on = voteActivePad == i
+            TweenService:Create(c.stroke, TweenInfo.new(0.2), {
+                Color = on and COL.accent or COL.border,
+                Thickness = on and 1.5 or 1,
+            }):Play()
+            c.status.TextColor3 = on and COL.accent or COL.textDim
+            c.status.Text = on and ("voting " .. voteVotesCast) or "idle"
+        end
+    end
+
+    local function stopVoteLoop(silent)
+        if voteLoopThread then pcall(task.cancel, voteLoopThread); voteLoopThread = nil end
+        voteActivePad = nil
+        relayoutVoteCards()
+    end
+    local function votePadVotes(i)
+        local pad = getVotePad(i)
+        if not pad then return false end
+        local map, votes = readVotePad(pad)
+        if not (map and votes) then return false end
+        return true, tonumber(votes:match("%d+"))
+    end
+    local function startVoteLoop(i)
+        stopVoteLoop(true)
+        voteActivePad = i
+        voteVotesCast = 0
+        relayoutVoteCards()
+        voteLoopThread = task.spawn(function()
+            local best, stale = nil, 0
+            while voteActivePad == i do
+                scanVoteGuis()
+                local active, count = votePadVotes(i)
+                if not active then stopVoteLoop(true); return end
+                best = best or count
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                local target = getVotePadCF(getVotePad(i))
+                if hum and hum.Health > 0 and root and target then
+                    root.CFrame = target + Vector3.new(0, 2.5, 0)
+                    local before = count
+                    local waitStart = os.clock()
+                    repeat
+                        RunService.Heartbeat:Wait()
+                        root.CFrame = target + Vector3.new(0, 2.5, 0)
+                        scanVoteGuis()
+                        local _, c = votePadVotes(i)
+                        if c and before and c > before then break end
+                    until os.clock() - waitStart >= 0.4 or voteActivePad ~= i
+                    if voteActivePad ~= i then break end
+                    scanVoteGuis()
+                    active, count = votePadVotes(i)
+                    if not active then stopVoteLoop(true); return end
+                    if count and best and count <= best then
+                        stale += 1
+                        if stale >= 3 then stopVoteLoop(true); return end
+                    else stale = 0; best = count or best end
+                    voteVotesCast += 1
+                    if hum.Health > 0 then hum.Health = 0 end
+                    local newChar = LocalPlayer.CharacterAdded:Wait()
+                    newChar:WaitForChild("HumanoidRootPart", 3)
+                    task.wait(0.12)
+                elseif not hum or hum.Health <= 0 then
+                    local respawned = LocalPlayer.CharacterAdded:Wait()
+                    respawned:WaitForChild("HumanoidRootPart", 3)
+                    task.wait(0.12)
+                else task.wait(0.2) end
+            end
+        end)
+    end
+
+    for i, c in ipairs(voteCards) do
+        c.card.MouseButton1Click:Connect(function()
+            if isUnloaded() then return end
+            if voteActivePad == i then stopVoteLoop() else startVoteLoop(i) end
+        end)
+    end
+
+    createActionBtn(VotePage, "⛔ Остановить Vote Dupe", Color3.fromRGB(150, 50, 50), function()
+        if voteActivePad then stopVoteLoop() end
+    end)
+
+    createSectionLabel(VotePage, "ИНФО")
+    local voteInfoLbl = Instance.new("TextLabel")
+    voteInfoLbl.Size = UDim2.new(1, 0, 0, 60)
+    voteInfoLbl.BackgroundColor3 = COL.card
+    voteInfoLbl.BorderSizePixel = 0
+    voteInfoLbl.Text = "Выбери карту выше чтобы начать дупать. Превью карт показываются если доступны."
+    voteInfoLbl.TextColor3 = COL.textDim
+    voteInfoLbl.Font = Enum.Font.Gotham
+    voteInfoLbl.TextSize = 11
+    voteInfoLbl.TextWrapped = true
+    voteInfoLbl.Parent = VotePage
+    Instance.new("UICorner", voteInfoLbl).CornerRadius = UDim.new(0, 10)
+
+    task.spawn(function()
+        while not isUnloaded() do
+            pcall(function()
+                scanVoteGuis()
+                local lobby = getVoteLobby()
+                local roundActive = (lobby == nil)
+                for i, c in ipairs(voteCards) do
+                    if roundActive then
+                        c.card.Visible = false
+                        c.map = nil; c.image = nil
+                        c.img.Image = ""; c.img.ImageTransparency = 1
+                        c.ph.Visible = true; c.ph.Text = "?"
+                        c.name.Text = ""; c.votes.Text = ""; c.status.Text = ""
+                    else
+                        c.card.Visible = true
+                        local pad = getVotePad(i)
+                        local map, votes
+                        if pad then map, votes = readVotePad(pad) end
+                        if not pad then
+                            c.map = nil
+                            c.name.Text = "UNAVAILABLE"
+                            c.img.Image = ""; c.img.ImageTransparency = 1
+                            c.ph.Visible = true; c.ph.Text = "?"
+                        elseif map then
+                            if map ~= c.map then
+                                c.map = map
+                                c.name.Text = string.upper(map)
+                                local initials = ""
+                                for w in map:gmatch("%S+") do initials = initials .. w:sub(1,1):upper() end
+                                c.ph.Text = initials:sub(1, 3)
+                            end
+                            local image = findVotePadImage(pad)
+                            if image and c.image ~= image then
+                                c.image = image
+                                c.img.Image = image
+                                c.img.ImageTransparency = 0
+                                c.ph.Visible = false
+                            elseif not image then
+                                c.img.Image = ""
+                                c.img.ImageTransparency = 1
+                                c.ph.Visible = true
+                            end
+                        else
+                            c.map = nil; c.image = nil
+                            c.name.Text = "WAITING..."
+                            c.img.Image = ""; c.img.ImageTransparency = 1
+                            c.ph.Visible = true; c.ph.Text = "?"
+                        end
+                        c.votes.Text = "votes " .. (votes or "—")
+                    end
+                end
+                if voteActivePad and (roundActive or not votePadVotes(voteActivePad)) then
+                    stopVoteLoop(true)
+                end
+            end)
+            task.wait(0.5)
+        end
+    end)
 
     -- ANIMATIONS UI
     local FAV_FILE = "ses_get3_favorites.json"
@@ -3802,6 +4154,7 @@ local function buildMM2Gui()
         saveConfig()
     end)
 
+    -- WINDOW
     local CloseBtn = Instance.new("TextButton")
     CloseBtn.Size = UDim2.new(0, 30, 0, 30)
     CloseBtn.Position = UDim2.new(1, -36, 0, 8)
@@ -3845,7 +4198,7 @@ end
 if IS_MM2 then
     buildMM2Gui()
 else
-    -- NON-MM2 MENU
+    -- NON-MM2
     local otherGui = Instance.new("ScreenGui")
     otherGui.Name = "ses_get3_other"
     otherGui.ResetOnSpawn = false
@@ -4108,7 +4461,6 @@ if not IS_MM2 then
     applyGodMode()
 end
 
--- VISUAL EFFECTS AUTO-START
 if Config.Shader then applyShader() end
 if Config.AuraEnabled then buildAura() end
 if Config.OrbsEnabled then buildOrbs() end
@@ -4292,4 +4644,4 @@ if IS_MM2 and MainFrame then
     end)
 end
 
-print("[ses_get3] v0.78 Pulse Hub Edition + VISUAL TAB v2 + Night Sky + Fixed Headless/Korblox + SCAM MURDERER загружен!")
+print("[ses_get3] v0.79 Pulse Hub Edition + VISUAL TAB v2 + Night Sky + Fixed Headless/Korblox + SCAM MURDERER + VOTE DUPE загружен!")
