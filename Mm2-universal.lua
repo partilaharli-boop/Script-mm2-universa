@@ -1,5 +1,5 @@
--- SES_GET3 ULTIMATE v0.79 | Pulse Hub Edition + VISUAL TAB v2 + Fixed Headless/Korblox + Night Sky + SCAM MURDERER + VOTE DUPE
--- MM2 + VoteDupe + Anim + Mascot + Invisible + GodMode (only non-MM2) + NewESP + Visual
+-- SES_GET3 ULTIMATE v0.80 | Pulse Hub Edition + VISUAL v2 + DRONE
+-- MM2 + VoteDupe + Anim + Mascot + Invisible + GodMode + NewESP + Visual + Shahed/FPV Drone
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -9,9 +9,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
+local ContentProvider = game:GetService("ContentProvider")
+local Debris = game:GetService("Debris")
 
 local SAVE_FILE = "ses_get3_config.json"
 local Config = {
+    DroneKind = "Shahed",
+    DroneImpact = "Fling",
     ESP = true, AutoShoot = false, MagicBullet = false, AutoKill = false,
     AutoGrabGun = false, AntiFling = false, CoolGuy = false, FarmCoins = false,
     FarmResetBagFull = false, AutoAttackAfterFarm = true, FlingOnDeath = false,
@@ -2387,9 +2392,14 @@ local function resolveBundleMappings(bundledItems)
     return mappings
 end
 
+-- ============ KEEP ANIMATION DATA ============
+local _KeepAnimData = { bundle = nil, emote = nil }
+
 local function applyEmoteByName(name)
     local id = Emotes[name]
     if not id then return end
+    _KeepAnimData.emote = name
+    _KeepAnimData.bundle = nil
     StopEmotes()
     AnimState.LastEmote = name
     PlayAnimation(id)
@@ -2398,6 +2408,8 @@ end
 local function applyBundle(name)
     local a = Animations[name]
     if not a then return end
+    _KeepAnimData.bundle = name
+    _KeepAnimData.emote = nil
     if a.bundledItems then
         AnimState.SelectedAnimation = name
         StopEmotes()
@@ -2500,9 +2512,7 @@ task.spawn(function()
         if animData and animData.data then
             for _, item in ipairs(animData.data) do
                 if item.name and item.bundledItems and not Animations[item.name] then
-                    Animations[item.name] = {
-                        bundledItems = item.bundledItems,
-                    }
+                    Animations[item.name] = { bundledItems = item.bundledItems }
                     addedAnims = addedAnims + 1
                 end
             end
@@ -2511,6 +2521,1014 @@ task.spawn(function()
     end)
     if not ok then warn("[ses_get3] Ошибка автозагрузки: " .. tostring(err)) end
 end)
+
+-- ============ DRONE (Shahed / FPV) ============
+local DroneState = {
+    kind = Config.DroneKind or "Shahed",
+    impact = Config.DroneImpact or "Fling",
+    busy = false,
+}
+local droneCache = {}
+local droneTemplate, droneLoading
+local droneShahedIds = { 120141614672192, 111443745475294, 16531510943 }
+local droneShahedFlip = { [120141614672192] = -1 }
+local droneFpvIds = { 124994246147928, 129274863429961, 79445961621887 }
+local droneFpvFlip = {}
+local droneSoundIds = {
+    engine = { 106621472307027, 117678889994053, 86747216998490 },
+    boom   = { 125127520917980, 7157159568, 9126102254 },
+    rumble = { 1843024924, 9846227426, 138432031406888 },
+    static = { 96891705634188, 83265726239905, 128865910652923 },
+    fpv    = { 114037851906101, 78411105609654, 122096583027065 },
+}
+local droneSoundCache = {}
+local droneSoundsLoading = false
+local DroneScreenGuiRef
+
+local function droneGetParts(m)
+    local parts = {}
+    for _, x in ipairs(m:GetDescendants()) do
+        if x:IsA("BasePart") then table.insert(parts, x) end
+    end
+    return parts
+end
+
+local function droneBuildShahed()
+    local m = Instance.new("Model")
+    local col = Color3.fromRGB(92, 96, 100)
+    local function part(className, size, cf, color, shape)
+        local p = Instance.new(className)
+        p.Size, p.CFrame = size, cf
+        p.Color = color or col
+        p.Material = Enum.Material.SmoothPlastic
+        if shape then p.Shape = shape end
+        p.Parent = m
+        return p
+    end
+    local rot90 = CFrame.Angles(0, math.rad(90), 0)
+    part("Part", Vector3.new(9.6, 1.3, 1.3), CFrame.new(0, 0, 0.2) * rot90, nil, Enum.PartType.Cylinder)
+    part("Part", Vector3.new(1.3, 1.3, 1.3), CFrame.new(0, 0, -4.6), nil, Enum.PartType.Ball)
+    part("Part", Vector3.new(0.5, 0.9, 0.9), CFrame.new(0, 0, 5.2) * rot90, Color3.fromRGB(40, 40, 40), Enum.PartType.Cylinder)
+    local prop = part("Part", Vector3.new(0.12, 3.2, 0.3), CFrame.new(0, 0, 5.5), Color3.fromRGB(30, 30, 30))
+    prop.Name = "Prop"
+    part("WedgePart", Vector3.new(0.25, 4.9, 7.5), CFrame.fromMatrix(Vector3.new(3.05, 0, 0.75), Vector3.new(0, -1, 0), Vector3.new(1, 0, 0), Vector3.new(0, 0, 1)))
+    part("WedgePart", Vector3.new(0.25, 4.9, 7.5), CFrame.fromMatrix(Vector3.new(-3.05, 0, 0.75), Vector3.new(0, 1, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, 1)))
+    part("Part", Vector3.new(0.2, 1.8, 1.4), CFrame.new(5.45, 0.4, 3.9))
+    part("Part", Vector3.new(0.2, 1.8, 1.4), CFrame.new(-5.45, 0.4, 3.9))
+    m.WorldPivot = CFrame.new()
+    return m
+end
+
+local function droneOrientShahed(m, parts, id)
+    local lo, hi = Vector3.one * math.huge, -Vector3.one * math.huge
+    local boxes = {}
+    for _, p in ipairs(parts) do
+        local cf, h = p.CFrame, p.Size / 2
+        local r = Vector3.new(
+            math.abs(cf.RightVector.X) * h.X + math.abs(cf.UpVector.X) * h.Y + math.abs(cf.LookVector.X) * h.Z,
+            math.abs(cf.RightVector.Y) * h.X + math.abs(cf.UpVector.Y) * h.Y + math.abs(cf.LookVector.Y) * h.Z,
+            math.abs(cf.RightVector.Z) * h.X + math.abs(cf.UpVector.Z) * h.Y + math.abs(cf.LookVector.Z) * h.Z)
+        lo, hi = lo:Min(cf.Position - r), hi:Max(cf.Position + r)
+        table.insert(boxes, { cf.Position, r })
+    end
+    local size, center = hi - lo, (lo + hi) / 2
+    local axis, side = Vector3.xAxis, Vector3.zAxis
+    if size.Z > size.X then axis, side = Vector3.zAxis, Vector3.xAxis end
+    local moment = 0
+    for _, b in ipairs(boxes) do
+        local a = b[2]:Dot(axis) * b[2]:Dot(side)
+        moment = moment + (b[1] - center):Dot(axis) * a
+    end
+    local sign = moment >= 0 and 1 or -1
+    if droneShahedFlip[id] then sign = droneShahedFlip[id] end
+    m.WorldPivot = CFrame.lookAt(center, center - axis * sign)
+    return math.max(size.X, size.Z)
+end
+
+local function droneBuildFpv()
+    local m = Instance.new("Model")
+    local function part(size, cf, color, shape, mat)
+        local p = Instance.new("Part")
+        p.Size, p.CFrame = size, cf
+        p.Color = color
+        p.Material = mat or Enum.Material.SmoothPlastic
+        if shape then p.Shape = shape end
+        p.Parent = m
+        return p
+    end
+    local dark = Color3.fromRGB(28, 28, 30)
+    part(Vector3.new(0.9, 0.25, 1.5), CFrame.new(), dark)
+    for _, a in ipairs({ 45, 135, 225, 315 }) do
+        local r = math.rad(a)
+        local tip = Vector3.new(math.sin(r) * 1.45, 0, math.cos(r) * 1.45)
+        part(Vector3.new(0.18, 0.1, 2.9), CFrame.lookAt(Vector3.zero, tip) * CFrame.new(0, 0, -1.45), dark)
+        part(Vector3.new(0.3, 0.32, 0.32), CFrame.new(tip + Vector3.new(0, 0.18, 0)) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(60, 120, 70), Enum.PartType.Cylinder, Enum.Material.Metal)
+        local prop = part(Vector3.new(0.04, 1.3, 1.3), CFrame.new(tip + Vector3.new(0, 0.36, 0)) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(20, 20, 20), Enum.PartType.Cylinder)
+        prop.Transparency = 0.55
+        prop.Name = "Prop"
+    end
+    part(Vector3.new(0.6, 0.45, 1.1), CFrame.new(0, 0.38, 0.1), Color3.fromRGB(40, 90, 170))
+    part(Vector3.new(0.35, 0.3, 0.3), CFrame.new(0, 0.25, -0.75), Color3.fromRGB(15, 15, 15))
+    part(Vector3.new(2.2, 0.55, 0.55), CFrame.new(0, -0.4, -0.7) * CFrame.Angles(0, math.rad(90), 0), Color3.fromRGB(110, 90, 55), Enum.PartType.Cylinder, Enum.Material.Metal)
+    part(Vector3.new(0.5, 0.5, 0.5), CFrame.new(0, -0.4, -1.8), Color3.fromRGB(200, 200, 190), Enum.PartType.Ball)
+    m.WorldPivot = CFrame.new()
+    return m
+end
+
+local function droneOrientFpv(m, parts, id)
+    local lo, hi = Vector3.one * math.huge, -Vector3.one * math.huge
+    for _, p in ipairs(parts) do
+        local cf, h = p.CFrame, p.Size / 2
+        local r = Vector3.new(
+            math.abs(cf.RightVector.X) * h.X + math.abs(cf.UpVector.X) * h.Y + math.abs(cf.LookVector.X) * h.Z,
+            math.abs(cf.RightVector.Y) * h.X + math.abs(cf.UpVector.Y) * h.Y + math.abs(cf.LookVector.Y) * h.Z,
+            math.abs(cf.RightVector.Z) * h.X + math.abs(cf.UpVector.Z) * h.Y + math.abs(cf.LookVector.Z) * h.Z)
+        lo, hi = lo:Min(cf.Position - r), hi:Max(cf.Position + r)
+    end
+    local size, center = hi - lo, (lo + hi) / 2
+    local best, bestScore, axis = nil, 0, Vector3.zAxis
+    for _, p in ipairs(parts) do
+        local sz = p.Size
+        local longest = math.max(sz.X, sz.Y, sz.Z)
+        local shortest = math.min(sz.X, sz.Y, sz.Z)
+        local score = longest * longest * shortest / math.max(shortest, 0.05)
+        if longest / math.max(shortest, 0.05) > 2.2 and score > bestScore then
+            local cf = p.CFrame
+            local longAxis = sz.X == longest and cf.RightVector or sz.Y == longest and cf.UpVector or cf.LookVector
+            if math.abs(longAxis.Y) < 0.5 then best, bestScore = p, score end
+        end
+    end
+    local sign = 1
+    if best then
+        local sz, cf = best.Size, best.CFrame
+        local longest = math.max(sz.X, sz.Y, sz.Z)
+        local longAxis = sz.X == longest and cf.RightVector or sz.Y == longest and cf.UpVector or cf.LookVector
+        axis = math.abs(longAxis.X) > math.abs(longAxis.Z) and Vector3.xAxis or Vector3.zAxis
+        local half = longest / 2
+        local c = (cf.Position - center):Dot(axis)
+        local endA, endB = c + half * math.abs(longAxis:Dot(axis)), c - half * math.abs(longAxis:Dot(axis))
+        sign = math.abs(endA) >= math.abs(endB) and -1 or 1
+    end
+    if droneFpvFlip[id] then sign = droneFpvFlip[id] end
+    m.WorldPivot = CFrame.lookAt(center, center - axis * sign)
+    return math.max(size.X, size.Z)
+end
+
+local function dronePickSound(list)
+    for _, id in ipairs(list) do
+        local s = Instance.new("Sound")
+        s.SoundId = "rbxassetid://" .. id
+        s.Volume = 0
+        s.Parent = SoundService
+        local loaded = false
+        pcall(function()
+            ContentProvider:PreloadAsync({ s }, function(_, status)
+                loaded = status == Enum.AssetFetchStatus.Success
+            end)
+        end)
+        s:Destroy()
+        if loaded then return "rbxassetid://" .. id end
+    end
+    return "rbxassetid://" .. list[1]
+end
+
+local function droneEnsureSounds()
+    while droneSoundsLoading do task.wait() end
+    for key in pairs(droneSoundIds) do
+        if not droneSoundCache[key] then
+            droneSoundsLoading = true
+            for nextKey, list in pairs(droneSoundIds) do
+                if not droneSoundCache[nextKey] then
+                    droneSoundCache[nextKey] = dronePickSound(list)
+                end
+            end
+            droneSoundsLoading = false
+            break
+        end
+    end
+end
+
+local function droneLoadTemplate(override)
+    while droneLoading do task.wait(0.1) end
+    local kind = override or DroneState.kind
+    droneEnsureSounds()
+    if droneCache[kind] then
+        droneTemplate = droneCache[kind]
+        return droneTemplate
+    end
+    droneLoading = true
+    local isFpv = kind == "FPV"
+    local m, usedId
+    for _, id in ipairs(isFpv and droneFpvIds or droneShahedIds) do
+        usedId = id
+        local ok, objs = pcall(function()
+            return game:GetObjects("rbxassetid://" .. id)
+        end)
+        if ok and objs and #objs > 0 then
+            m = Instance.new("Model")
+            for _, o in ipairs(objs) do o.Parent = m end
+            for _, x in ipairs(m:GetDescendants()) do
+                if x:IsA("LuaSourceContainer") or x:IsA("Sound") or x:IsA("ClickDetector")
+                    or x:IsA("ProximityPrompt") or x:IsA("Humanoid") or x:IsA("BillboardGui") then
+                    x:Destroy()
+                end
+            end
+            if m:FindFirstChildWhichIsA("BasePart", true) then break end
+            m:Destroy()
+            m = nil
+        end
+    end
+    local extent
+    if m then
+        extent = (isFpv and droneOrientFpv or droneOrientShahed)(m, droneGetParts(m), usedId)
+    elseif isFpv then
+        m = droneBuildFpv()
+        extent = 4
+    else
+        m = droneBuildShahed()
+        extent = 11
+    end
+    pcall(function()
+        m:ScaleTo(m:GetScale() * (isFpv and 3 or 5) / math.max(extent, 0.1))
+    end)
+    m.Archivable = true
+    for _, x in ipairs(m:GetDescendants()) do x.Archivable = true end
+    for _, p in ipairs(droneGetParts(m)) do
+        p.Anchored = true
+        p.CanCollide = false
+        p.CanQuery = false
+        p.CanTouch = false
+    end
+    m.Name = "RockHubShahed"
+    droneCache[kind] = m
+    droneTemplate = droneCache[DroneState.kind]
+    droneLoading = false
+    return m
+end
+
+local function dronePlaySound(key, parent, props)
+    local soundId = droneSoundCache[key]
+    if not soundId then return end
+    local s = Instance.new("Sound")
+    s.SoundId = soundId
+    for k, v in pairs(props) do s[k] = v end
+    s.Parent = parent
+    s:Play()
+    if not s.IsLoaded then
+        task.spawn(function()
+            local deadline = os.clock() + 3
+            while s.Parent and not s.IsLoaded and os.clock() < deadline do task.wait(0.05) end
+            if s.Parent and not s.IsPlaying then s:Play() end
+        end)
+    end
+    return s
+end
+
+local function droneShakeCamera(intensity, hideAfter)
+    local name = "RockHubShahedShake" .. math.random(1000000)
+    local gradStart, last = os.clock(), CFrame.new()
+    RunService:BindToRenderStep(name, Enum.RenderPriority.Camera.Value + 1, function()
+        local cam = workspace.CurrentCamera
+        if not cam then return end
+        local k = 1 - (os.clock() - gradStart) / hideAfter
+        if k <= 0 then
+            cam.CFrame = cam.CFrame * last:Inverse()
+            RunService:UnbindFromRenderStep(name)
+            return
+        end
+        local a = intensity * k * k
+        local offset = CFrame.Angles((math.random() - 0.5) * a, (math.random() - 0.5) * a, (math.random() - 0.5) * a * 0.5)
+        cam.CFrame = cam.CFrame * last:Inverse() * offset
+        last = offset
+    end)
+end
+
+local function droneExplode(pos)
+    local fx = Instance.new("Part")
+    fx.Anchored, fx.CanCollide, fx.CanQuery, fx.CanTouch = true, false, false, false
+    fx.Transparency, fx.Size, fx.Position = 1, Vector3.one, pos
+    fx.Parent = workspace.CurrentCamera
+    local e = Instance.new("Explosion")
+    e.Position, e.BlastPressure, e.BlastRadius = pos, 0, 0
+    e.DestroyJointRadiusPercent = 0
+    e.ExplosionType = Enum.ExplosionType.NoCraters
+    e.Parent = workspace
+    local function emit(props, n)
+        local emitter = Instance.new("ParticleEmitter")
+        emitter.Enabled = false
+        for k, v in pairs(props) do emitter[k] = v end
+        emitter.Parent = fx
+        emitter:Emit(n)
+    end
+    emit({
+        Texture = "rbxasset://textures/particles/fire_main.dds",
+        Color = ColorSequence.new(Color3.fromRGB(255, 220, 120), Color3.fromRGB(255, 80, 20)),
+        LightEmission = 1, Lifetime = NumberRange.new(0.35, 0.7),
+        Speed = NumberRange.new(25, 55), SpreadAngle = Vector2.new(180, 180), Drag = 6,
+        Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 6), NumberSequenceKeypoint.new(1, 14) }),
+        Transparency = NumberSequence.new(0.1, 1),
+    }, 60)
+    emit({
+        Texture = "rbxasset://textures/particles/smoke_main.dds",
+        Color = ColorSequence.new(Color3.fromRGB(60, 55, 50), Color3.fromRGB(25, 25, 25)),
+        Lifetime = NumberRange.new(2.5, 4.5), Speed = NumberRange.new(8, 22),
+        SpreadAngle = Vector2.new(180, 180), Drag = 2, Acceleration = Vector3.new(0, 6, 0),
+        Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 8), NumberSequenceKeypoint.new(1, 22) }),
+        Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) }),
+        RotSpeed = NumberRange.new(-40, 40), Rotation = NumberRange.new(0, 360),
+    }, 35)
+    emit({
+        Texture = "rbxasset://textures/particles/sparkles_main.dds",
+        Color = ColorSequence.new(Color3.fromRGB(255, 190, 90)),
+        LightEmission = 1, Lifetime = NumberRange.new(0.6, 1.4),
+        Speed = NumberRange.new(60, 110), SpreadAngle = Vector2.new(180, 180),
+        Acceleration = Vector3.new(0, -60, 0),
+        Size = NumberSequence.new(0.6, 0),
+    }, 80)
+    local light = Instance.new("PointLight")
+    light.Color, light.Brightness, light.Range = Color3.fromRGB(255, 160, 70), 10, 60
+    light.Parent = fx
+    TweenService:Create(light, TweenInfo.new(0.8), { Brightness = 0 }):Play()
+    dronePlaySound("boom", fx, { Volume = 2, RollOffMinDistance = 20, RollOffMaxDistance = 1500 })
+    dronePlaySound("rumble", fx, { Volume = 1.2, RollOffMinDistance = 60, RollOffMaxDistance = 3000 })
+    local cam = workspace.CurrentCamera
+    if cam then
+        local d = (cam.CFrame.Position - pos).Magnitude
+        if d < 200 then droneShakeCamera(0.06 * (1 - d / 200) + 0.01, 0.7) end
+    end
+    Debris:AddItem(fx, 7)
+    Debris:AddItem(e, 3)
+end
+
+local function droneShowSignalLost(targetName, flightTime)
+    if not DroneScreenGuiRef then return end
+    local font = Enum.Font.Code
+    local root = Instance.new("CanvasGroup")
+    root.Name = "RockHubSignalLost"
+    root.Position = UDim2.fromOffset(0, -100)
+    root.Size = UDim2.new(1, 0, 1, 200)
+    root.BackgroundColor3 = Color3.new(1, 1, 1)
+    root.BackgroundTransparency = 0
+    root.BorderSizePixel = 0
+    root.ZIndex = 50
+    root.Parent = DroneScreenGuiRef
+    local content = Instance.new("Frame")
+    content.Position = UDim2.fromOffset(0, 100)
+    content.Size = UDim2.new(1, 0, 1, -200)
+    content.BackgroundTransparency = 1
+    content.ZIndex = 52
+    content.Parent = root
+
+    local bars = {}
+    for i = 1, 42 do
+        local b = Instance.new("Frame")
+        b.Position = UDim2.new(0, 0, (i - 1) / 42, 0)
+        b.Size = UDim2.new(1.3, 0, 0.023809523809523808, 1)
+        b.BorderSizePixel = 0
+        b.ZIndex = 51
+        b.Visible = false
+        b.Parent = root
+        bars[i] = b
+    end
+    for i = 0, 59 do
+        local l = Instance.new("Frame")
+        l.Position = UDim2.new(0, 0, i / 60, 0)
+        l.Size = UDim2.new(1, 0, 0, 1)
+        l.BackgroundColor3 = Color3.new(0, 0, 0)
+        l.BackgroundTransparency = 0.75
+        l.BorderSizePixel = 0
+        l.ZIndex = 55
+        l.Parent = root
+    end
+    local box = Instance.new("Frame")
+    box.AnchorPoint = Vector2.new(0.5, 0.5)
+    box.Position = UDim2.fromScale(0.5, 0.5)
+    box.Size = UDim2.fromOffset(380, 92)
+    box.BackgroundTransparency = 1
+    box.Visible = false
+    box.ZIndex = 53
+    box.Parent = content
+    local boxStroke = Instance.new("UIStroke")
+    boxStroke.Color = Color3.fromRGB(255, 255, 255)
+    boxStroke.Thickness = 2
+    boxStroke.Parent = box
+
+    local function makeLabel(text, txSize, color)
+        local l = Instance.new("TextLabel")
+        l.Text = text
+        l.Font = font
+        l.TextSize = txSize
+        l.TextColor3 = color or Color3.fromRGB(235, 235, 235)
+        l.BackgroundTransparency = 1
+        l.ZIndex = 53
+        l.Visible = false
+        l.Parent = content
+        return l
+    end
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Text = "SIGNAL LOST"
+    titleLabel.Font = font
+    titleLabel.TextSize = 46
+    titleLabel.TextColor3 = Color3.fromRGB(235, 235, 235)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Size = UDim2.fromScale(1, 1)
+    titleLabel.ZIndex = 53
+    titleLabel.Parent = box
+    local noVideoLabel = makeLabel("/!\\  NO VIDEO", 16, Color3.fromRGB(255, 60, 50))
+    noVideoLabel.AnchorPoint = Vector2.new(0.5, 1)
+    noVideoLabel.Position = UDim2.new(0.5, 0, 0.5, -58)
+    noVideoLabel.Size = UDim2.fromOffset(300, 20)
+    local subtitle = makeLabel(targetName and ("TARGET  " .. targetName:upper() .. "  -  HIT") or "NO TARGET",
+        15, targetName and Color3.fromRGB(120, 255, 140) or Color3.fromRGB(170, 170, 170))
+    subtitle.AnchorPoint = Vector2.new(0.5, 0)
+    subtitle.Position = UDim2.new(0.5, 0, 0.5, 58)
+    subtitle.Size = UDim2.fromOffset(500, 20)
+    local secs = math.floor(flightTime)
+    local corners = {
+        makeLabel(DroneState.kind == "FPV" and "FPV KAMIKAZE   CAM 1" or "SHAHED-136   CAM 1", 15),
+        makeLabel(("REC  00:%02d:%02d"):format(secs // 60, secs % 60), 15, Color3.fromRGB(255, 60, 50)),
+        makeLabel("CH 5.8G   RSSI  0%", 15),
+        makeLabel("LINK  --.-  dB", 15),
+    }
+    corners[1].Position = UDim2.fromOffset(28, 22); corners[1].Size = UDim2.fromOffset(300, 18); corners[1].TextXAlignment = Enum.TextXAlignment.Left
+    corners[2].Position = UDim2.new(1, -28, 0, 22); corners[2].Size = UDim2.fromOffset(300, 18); corners[2].TextXAlignment = Enum.TextXAlignment.Right
+    corners[3].Position = UDim2.new(0, 28, 1, -40); corners[3].Size = UDim2.fromOffset(300, 18); corners[3].TextXAlignment = Enum.TextXAlignment.Left
+    corners[4].Position = UDim2.new(1, -28, 1, -40); corners[4].Size = UDim2.fromOffset(300, 18); corners[4].TextXAlignment = Enum.TextXAlignment.Right
+    local staticSound = dronePlaySound("static", workspace.CurrentCamera, { Volume = 0.8 })
+    local gradStart = os.clock()
+    local conn
+    conn = RunService.RenderStepped:Connect(function()
+        local t = os.clock() - gradStart
+        if t < 0.07 then
+            return
+        elseif t < 0.6 then
+            root.BackgroundColor3 = Color3.new(0, 0, 0)
+            for _, b in ipairs(bars) do
+                local g = math.random()
+                b.Visible = true
+                b.BackgroundColor3 = Color3.new(g, g, g)
+                b.BackgroundTransparency = math.random() * 0.35
+                b.Position = UDim2.new(-math.random() * 0.3, 0, b.Position.Y.Scale, 0)
+            end
+        else
+            if staticSound and staticSound.IsPlaying then staticSound:Stop() end
+            box.Visible = true
+            noVideoLabel.Visible = true
+            subtitle.Visible = true
+            for _, c in ipairs(corners) do c.Visible = true end
+            for _, b in ipairs(bars) do
+                b.Visible = math.random() < 0.03
+                if b.Visible then
+                    local g = math.random() * 0.5
+                    b.BackgroundColor3 = Color3.new(g, g, g)
+                    b.BackgroundTransparency = 0.6
+                end
+            end
+            local on = t * 2.2 % 1 < 0.62
+            titleLabel.TextTransparency = on and 0 or 0.85
+            noVideoLabel.TextTransparency = on and 0 or 0.6
+            box.Position = UDim2.new(0.5, math.random() < 0.06 and math.random(-6, 6) or 0, 0.5, 0)
+        end
+    end)
+    task.delay(2.15, function()
+        TweenService:Create(root, TweenInfo.new(0.3), { GroupTransparency = 1 }):Play()
+        task.wait(0.32)
+        conn:Disconnect()
+        root:Destroy()
+        if staticSound then staticSound:Destroy() end
+    end)
+end
+
+local function droneLaunchInternal()
+    if DroneState.busy then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 then return end
+    local impactMode = DroneState.impact
+    if impactMode == "Kill" and not (char:FindFirstChild("Knife") or (LocalPlayer.Backpack and LocalPlayer.Backpack:FindFirstChild("Knife"))) then
+        return
+    end
+    if not droneTemplate then droneLoadTemplate() end
+    if not droneTemplate then
+        warn("[Drone] failed to load template")
+        return
+    end
+    if not (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) then return end
+    DroneState.busy = true
+    pcall(function() hum:UnequipTools() end)
+
+    local controls
+    task.spawn(function()
+        pcall(function()
+            local c = require(LocalPlayer.PlayerScripts:WaitForChild("PlayerModule", 1)):GetControls()
+            c:Disable()
+            controls = c
+        end)
+    end)
+    local oldWalkSpeed, oldJumpPower = hum.WalkSpeed, hum.JumpPower
+    hum.WalkSpeed, hum.JumpPower = 0, 0
+    local cam = workspace.CurrentCamera
+    if not cam then DroneState.busy = false; return end
+    local oldCamType = cam.CameraType
+    cam.CameraType = Enum.CameraType.Scriptable
+    local oldMouse, oldIconEnabled = UserInputService.MouseBehavior, UserInputService.MouseIconEnabled
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.IgnoreWater = true
+    local ignoreList = { cam, char }
+    rp.FilterDescendantsInstances = ignoreList
+    local look = cam.CFrame.LookVector
+    local turn = math.atan2(-look.X, -look.Z)
+    local pitch = 0.12
+    local pos = hrp.Position + Vector3.new(0, 1.5, 0)
+    local bank = 0
+    local gradStart = os.clock()
+    local isFpv = DroneState.kind == "FPV"
+    local drone = droneTemplate:Clone()
+    local basePart = drone:FindFirstChildWhichIsA("BasePart", true)
+    drone.Parent = cam
+    local props = {}
+    for _, d in ipairs(drone:GetDescendants()) do
+        if d:IsA("BasePart") then
+            local n = d.Name:lower()
+            if n:find("prop") or n:find("blade") then table.insert(props, d) end
+        end
+    end
+    local engine = dronePlaySound(isFpv and "fpv" or "engine", basePart,
+        { Looped = true, Volume = 1, RollOffMinDistance = 15, RollOffMaxDistance = 700 })
+
+    local osd, osdLabels
+    if isFpv and DroneScreenGuiRef then
+        osd = Instance.new("Frame")
+        osd.Name = "RockHubShahedOsd"
+        osd.Size = UDim2.fromScale(1, 1)
+        osd.BackgroundTransparency = 1
+        osd.Parent = DroneScreenGuiRef
+        osdLabels = {}
+        local function o(key, anchor, pos2, align)
+            local l = Instance.new("TextLabel")
+            l.AnchorPoint = anchor
+            l.Position = pos2
+            l.Size = UDim2.fromOffset(200, 18)
+            l.BackgroundTransparency = 1
+            l.Font = Enum.Font.Code
+            l.TextSize = 16
+            l.TextColor3 = Color3.fromRGB(255, 255, 255)
+            l.TextStrokeTransparency = 0.3
+            l.TextXAlignment = align
+            l.Text = ""
+            l.Parent = osd
+            osdLabels[key] = l
+        end
+        o("bat", Vector2.new(0, 0), UDim2.fromOffset(30, 70), Enum.TextXAlignment.Left)
+        o("time", Vector2.new(1, 0), UDim2.new(1, -30, 0, 70), Enum.TextXAlignment.Right)
+        o("alt", Vector2.new(0, 1), UDim2.new(0, 30, 1, -80), Enum.TextXAlignment.Left)
+        o("spd", Vector2.new(1, 1), UDim2.new(1, -30, 1, -80), Enum.TextXAlignment.Right)
+        o("mode", Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 70), Enum.TextXAlignment.Center)
+        osdLabels.mode.Text = impactMode:upper() .. "   ACRO"
+        osdLabels.mode.TextColor3 = impactMode == "Kill" and Color3.fromRGB(255, 80, 70) or Color3.fromRGB(110, 190, 255)
+    end
+
+    local hud = Instance.new("Frame")
+    hud.Name = "RockHubShahedHud"
+    hud.AnchorPoint = Vector2.new(0.5, 1)
+    hud.Position = UDim2.new(0.5, 0, 1, -24)
+    hud.Size = UDim2.fromOffset(0, 30)
+    hud.AutomaticSize = Enum.AutomaticSize.X
+    hud.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
+    hud.BackgroundTransparency = 0.25
+    hud.Parent = DroneScreenGuiRef
+    local hudCorner = Instance.new("UICorner")
+    hudCorner.CornerRadius = UDim.new(1, 0)
+    hudCorner.Parent = hud
+    local hudPad = Instance.new("UIPadding")
+    hudPad.PaddingLeft = UDim.new(0, 14)
+    hudPad.PaddingRight = UDim.new(0, 14)
+    hudPad.Parent = hud
+    local hint = Instance.new("TextLabel")
+    hint.Size = UDim2.fromScale(0, 1)
+    hint.AutomaticSize = Enum.AutomaticSize.X
+    hint.BackgroundTransparency = 1
+    hint.Font = Enum.Font.GothamMedium
+    hint.TextSize = 13
+    hint.TextColor3 = Color3.fromRGB(235, 235, 240)
+    hint.Text = ""
+    hint.Parent = hud
+    local crosshair = Instance.new("Frame")
+    crosshair.Name = "RockHubShahedCross"
+    crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+    crosshair.Position = UDim2.fromScale(0.5, 0.5)
+    crosshair.Size = UDim2.fromOffset(6, 6)
+    crosshair.BackgroundColor3 = Color3.fromRGB(255, 70, 60)
+    crosshair.Parent = DroneScreenGuiRef
+    local crossCorner = Instance.new("UICorner")
+    crossCorner.CornerRadius = UDim.new(1, 0)
+    crossCorner.Parent = crosshair
+
+    local preferredTouch = false
+    pcall(function()
+        preferredTouch = UserInputService.PreferredInput == Enum.PreferredInput.Touch
+    end)
+    local touchDevice = UserInputService.TouchEnabled and (preferredTouch or not UserInputService.KeyboardEnabled)
+    local mobileInput = { throttle = 0, yaw = 0, lookDelta = Vector2.zero, boost = false, up = false, down = false }
+    local mobileRoot
+    local fpView, vWasDown = false, false
+    local keysDown = {}
+    local done = false
+    local connections = {}
+
+    local function endFlight(exploded)
+        for _, c in ipairs(connections) do c:Disconnect() end
+        RunService:UnbindFromRenderStep("RockHubShahedPilot")
+        if engine then engine:Stop() end
+        drone:Destroy()
+        hud:Destroy()
+        if mobileRoot then mobileRoot:Destroy() end
+        crosshair:Destroy()
+        if osd then osd:Destroy() end
+        UserInputService.MouseBehavior, UserInputService.MouseIconEnabled = oldMouse, oldIconEnabled
+        task.wait(exploded and 2.45 or 0.2)
+        if char and char.Parent then
+            for _, d in ipairs(char:GetDescendants()) do
+                if d:IsA("BasePart") or d:IsA("Decal") then d.LocalTransparencyModifier = 0 end
+            end
+        end
+        if controls then task.spawn(pcall, function() controls:Enable() end) end
+        if hum and hum.Parent then
+            hum.WalkSpeed, hum.JumpPower = oldWalkSpeed, oldJumpPower
+        end
+        cam.CameraType = oldCamType == Enum.CameraType.Scriptable and Enum.CameraType.Custom or oldCamType
+        if hum and hum.Parent then cam.CameraSubject = hum end
+        DroneState.busy = false
+    end
+
+    local function detonate(at)
+        if done then return end
+        done = true
+        local best, bestDist = nil, 16
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                local th = p.Character:FindFirstChild("HumanoidRootPart")
+                local h2 = p.Character:FindFirstChildOfClass("Humanoid")
+                if th and h2 and h2.Health > 0 then
+                    local d = (th.Position - at).Magnitude
+                    if d < bestDist then best, bestDist = p, d end
+                end
+            end
+        end
+        droneShowSignalLost(best and best.DisplayName, os.clock() - gradStart)
+        droneExplode(at)
+        if best and impactMode == "Fling" then
+            task.spawn(endFlight, false)
+            task.spawn(function()
+                FlingActive = true
+                pcall(SkidFling, best)
+                FlingActive = false
+            end)
+            return
+        elseif best and impactMode == "Kill" then
+            task.spawn(function()
+                local knife = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Knife")
+                    or (LocalPlayer.Backpack and LocalPlayer.Backpack:FindFirstChild("Knife"))
+                if knife then
+                    if knife.Parent ~= LocalPlayer.Character then pcall(function() knife.Parent = LocalPlayer.Character end); task.wait(0.05) end
+                    local th = best.Character and best.Character:FindFirstChild("HumanoidRootPart")
+                    local char2 = LocalPlayer.Character
+                    if th and char2 then
+                        local hrp2 = char2:FindFirstChild("HumanoidRootPart")
+                        if hrp2 then
+                            hrp2.CFrame = CFrame.lookAt(th.Position + Vector3.new(0, 0, 1.4), th.Position)
+                            pcall(function() knife:Activate() end)
+                            if firetouchinterest then
+                                local hd = knife:FindFirstChild("Handle")
+                                if hd then
+                                    firetouchinterest(hd, th, 0)
+                                    firetouchinterest(hd, th, 1)
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+        task.spawn(endFlight, true)
+    end
+
+    local function abort()
+        if done then return end
+        done = true
+        task.spawn(endFlight, false)
+    end
+
+    if touchDevice then
+        mobileRoot = Instance.new("Frame")
+        mobileRoot.Name = "RockHubDroneMobile"
+        mobileRoot.Size = UDim2.fromScale(1, 1)
+        mobileRoot.BackgroundTransparency = 1
+        mobileRoot.Parent = DroneScreenGuiRef
+        local stickBase = Instance.new("Frame")
+        stickBase.AnchorPoint = Vector2.new(0, 1)
+        stickBase.Position = UDim2.new(0, 24, 1, -28)
+        stickBase.Size = UDim2.fromOffset(136, 136)
+        stickBase.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
+        stickBase.BackgroundTransparency = 0.28
+        stickBase.Active = true
+        stickBase.ZIndex = 20
+        stickBase.Parent = mobileRoot
+        local stickCorner = Instance.new("UICorner")
+        stickCorner.CornerRadius = UDim.new(1, 0)
+        stickCorner.Parent = stickBase
+        local stickStroke = Instance.new("UIStroke")
+        stickStroke.Color = Color3.fromRGB(120, 90, 255)
+        stickStroke.Thickness = 2
+        stickStroke.Transparency = 0.35
+        stickStroke.Parent = stickBase
+        local stickKnob = Instance.new("Frame")
+        stickKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+        stickKnob.Position = UDim2.fromScale(0.5, 0.5)
+        stickKnob.Size = UDim2.fromOffset(54, 54)
+        stickKnob.BackgroundColor3 = Color3.fromRGB(120, 90, 255)
+        stickKnob.BackgroundTransparency = 0.08
+        stickKnob.ZIndex = 21
+        stickKnob.Parent = stickBase
+        local knobCorner = Instance.new("UICorner")
+        knobCorner.CornerRadius = UDim.new(1, 0)
+        knobCorner.Parent = stickKnob
+        local stickTouch
+        local function resetStick()
+            stickTouch = nil
+            mobileInput.throttle, mobileInput.yaw = 0, 0
+            stickKnob.Position = UDim2.fromScale(0.5, 0.5)
+        end
+        local function updateStick(input)
+            local center = stickBase.AbsolutePosition + stickBase.AbsoluteSize / 2
+            local delta = Vector2.new(input.Position.X, input.Position.Y) - center
+            local radius = stickBase.AbsoluteSize.X * 0.36
+            if delta.Magnitude > radius then delta = delta.Unit * radius end
+            mobileInput.yaw = math.clamp(delta.X / radius, -1, 1)
+            mobileInput.throttle = math.clamp(-delta.Y / radius, -1, 1)
+            stickKnob.Position = UDim2.new(0.5, delta.X, 0.5, delta.Y)
+        end
+        table.insert(connections, stickBase.InputBegan:Connect(function(input)
+            if not stickTouch and input.UserInputType == Enum.UserInputType.Touch then
+                stickTouch = input
+                updateStick(input)
+            end
+        end))
+        table.insert(connections, UserInputService.InputChanged:Connect(function(input)
+            if input == stickTouch then updateStick(input) end
+        end))
+        table.insert(connections, UserInputService.InputEnded:Connect(function(input)
+            if input == stickTouch then resetStick() end
+        end))
+
+        local lookPad = Instance.new("Frame")
+        lookPad.Position = UDim2.fromScale(0.38, 0)
+        lookPad.Size = UDim2.new(0.62, 0, 1, -190)
+        lookPad.BackgroundTransparency = 1
+        lookPad.Active = true
+        lookPad.ZIndex = 19
+        lookPad.Parent = mobileRoot
+        local lookTouch
+        table.insert(connections, lookPad.InputBegan:Connect(function(input)
+            if not lookTouch and input.UserInputType == Enum.UserInputType.Touch then
+                lookTouch = input
+            end
+        end))
+        table.insert(connections, UserInputService.InputChanged:Connect(function(input)
+            if input == lookTouch then
+                mobileInput.lookDelta = mobileInput.lookDelta + Vector2.new(input.Delta.X, input.Delta.Y)
+            end
+        end))
+        table.insert(connections, UserInputService.InputEnded:Connect(function(input)
+            if input == lookTouch then lookTouch = nil end
+        end))
+
+        local function controlButton(text, x, y, callback, holdKey)
+            local button = Instance.new("TextButton")
+            button.AnchorPoint = Vector2.new(1, 1)
+            button.Position = UDim2.new(1, x, 1, y)
+            button.Size = UDim2.fromOffset(82, 54)
+            button.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
+            button.BackgroundTransparency = 0.16
+            button.AutoButtonColor = false
+            button.Font = Enum.Font.GothamBold
+            button.Text = text
+            button.TextSize = 12
+            button.TextColor3 = Color3.fromRGB(245, 245, 248)
+            button.ZIndex = 22
+            button.Parent = mobileRoot
+            local c = Instance.new("UICorner")
+            c.CornerRadius = UDim.new(0, 12)
+            c.Parent = button
+            local s = Instance.new("UIStroke")
+            s.Color = text == "BOOM" and Color3.fromRGB(255, 75, 60) or Color3.fromRGB(120, 90, 255)
+            s.Thickness = 1.5
+            s.Transparency = 0.3
+            s.Parent = button
+            if holdKey then
+                local heldInput
+                table.insert(connections, button.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.Touch then
+                        heldInput = input
+                        mobileInput[holdKey] = true
+                        button.BackgroundColor3 = Color3.fromRGB(120, 90, 255)
+                    end
+                end))
+                table.insert(connections, UserInputService.InputEnded:Connect(function(input)
+                    if input == heldInput then
+                        heldInput = nil
+                        mobileInput[holdKey] = false
+                        button.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
+                    end
+                end))
+            else
+                table.insert(connections, button.Activated:Connect(callback))
+            end
+        end
+        controlButton("BOOST", -212, -92, nil, "boost")
+        controlButton("UP", -122, -92, nil, "up")
+        controlButton("DOWN", -32, -92, nil, "down")
+        controlButton("VIEW", -212, -28, function() fpView = not fpView end)
+        controlButton("BOOM", -122, -28, function()
+            if os.clock() - gradStart > 0.5 then detonate(pos) end
+        end)
+        controlButton("EXIT", -32, -28, abort)
+    end
+
+    table.insert(connections, UserInputService.InputBegan:Connect(function(input, gp)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if not gp and os.clock() - gradStart > 0.5 then detonate(pos) end
+        elseif input.KeyCode == Enum.KeyCode.X then
+            abort()
+        elseif not gp then
+            keysDown[input.KeyCode] = true
+        end
+    end))
+    table.insert(connections, UserInputService.InputEnded:Connect(function(input)
+        keysDown[input.KeyCode] = nil
+    end))
+    if hum then
+        table.insert(connections, hum.Died:Connect(abort))
+    end
+
+    local velocity = Vector3.zero
+    local function droneRaycast(move)
+        local hit = workspace:Spherecast(pos, 1.4, move, rp)
+        for _ = 1, 8 do
+            if not hit then break end
+            local obj = hit.Instance
+            local m = obj:FindFirstAncestorOfClass("Model")
+            local hitHum = m and m:FindFirstChildOfClass("Humanoid")
+            if not (obj.Transparency >= 0.9 or not obj.CanCollide or hitHum) then break end
+            table.insert(ignoreList, hitHum and m or obj)
+            rp.FilterDescendantsInstances = ignoreList
+            hit = workspace:Spherecast(pos, 1.4, move, rp)
+        end
+        return hit
+    end
+    local function moveDrone(move)
+        for _ = 1, 3 do
+            if move.Magnitude < 0.001 then return end
+            local hit = droneRaycast(move)
+            if not hit then
+                pos = pos + move
+                return
+            end
+            local n = hit.Normal
+            local travel = math.max(hit.Distance - 0.05, 0)
+            pos = pos + move.Unit * travel + n * 0.02
+            move = move - move.Unit * travel
+            move = move - n * move:Dot(n)
+            velocity = velocity - n * math.min(velocity:Dot(n), 0)
+        end
+    end
+
+    local groundParams = RaycastParams.new()
+    groundParams.FilterType = Enum.RaycastFilterType.Exclude
+    groundParams.FilterDescendantsInstances = { cam, char }
+    local camCf = cam.CFrame
+    local function keyDown(k) return UserInputService:IsKeyDown(k) end
+
+    RunService:BindToRenderStep("RockHubShahedPilot", Enum.RenderPriority.Last.Value + 5, function(dt)
+        if done then return end
+        dt = math.min(dt, 0.05)
+        if not touchDevice then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+            UserInputService.MouseIconEnabled = false
+        end
+        cam.CameraType = Enum.CameraType.Scriptable
+        local mouseDelta = touchDevice and mobileInput.lookDelta or UserInputService:GetMouseDelta()
+        mobileInput.lookDelta = Vector2.zero
+        local turn2 = 0
+        if keyDown(Enum.KeyCode.A) then turn2 = turn2 + 1 end
+        if keyDown(Enum.KeyCode.D) then turn2 = turn2 - 1 end
+        turn2 = turn2 - mobileInput.yaw
+        local yawDelta = -mouseDelta.X * (touchDevice and 0.0045 or 0.0035) + turn2 * 1.8 * dt
+        turn = turn + yawDelta
+        pitch = math.clamp(pitch - mouseDelta.Y * (touchDevice and 0.0045 or 0.0035), -1.45, 1.3)
+        local v = keyDown(Enum.KeyCode.V)
+        if v and not vWasDown then fpView = not fpView end
+        vWasDown = v
+        local rot = CFrame.Angles(0, turn, 0) * CFrame.Angles(pitch, 0, 0)
+        local dir = rot.LookVector
+        local speed = 0
+        if keyDown(Enum.KeyCode.W) then
+            speed = isFpv and (keyDown(Enum.KeyCode.LeftShift) and 150 or 90) or (keyDown(Enum.KeyCode.LeftShift) and 110 or 60)
+        end
+        if keyDown(Enum.KeyCode.S) then speed = isFpv and -30 or -25 end
+        if touchDevice and math.abs(mobileInput.throttle) > 0.04 then
+            if mobileInput.throttle > 0 then
+                speed = mobileInput.throttle * (isFpv and (mobileInput.boost and 150 or 90) or (mobileInput.boost and 110 or 60))
+            else
+                speed = mobileInput.throttle * (isFpv and 30 or 25)
+            end
+        end
+        local vert, vel = 0, isFpv and 40 or 28
+        if keyDown(Enum.KeyCode.Space) or mobileInput.up then vert = vert + vel end
+        if keyDown(Enum.KeyCode.LeftControl) or keyDown(Enum.KeyCode.Q) or mobileInput.down then vert = vert - vel end
+        velocity = velocity:Lerp(dir * speed + Vector3.yAxis * vert, math.min(dt * (isFpv and 4.5 or 3), 1))
+        bank = bank + (math.clamp(yawDelta / math.max(dt, 0.001) * 0.35, -0.9, 0.9) - bank) * math.min(dt * 5, 1)
+        local step = velocity * dt
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                local th = p.Character:FindFirstChild("HumanoidRootPart")
+                if th and (th.Position - pos).Magnitude < 6 then
+                    detonate(th.Position)
+                    return
+                end
+            end
+        end
+        moveDrone(step)
+        local cf = CFrame.new(pos) * rot
+        local tilt = isFpv and -math.clamp(velocity:Dot(dir) / 150, -0.4, 1) * 0.45 or 0
+        local visualCf = cf * CFrame.Angles(tilt, 0, bank * (isFpv and 1.2 or 1))
+        drone:PivotTo(visualCf)
+        local spinAxis = isFpv and visualCf.UpVector or visualCf.LookVector
+        for _, prop in ipairs(props) do
+            prop.CFrame = CFrame.new(prop.Position) * CFrame.fromAxisAngle(spinAxis, dt * 45) * (prop.CFrame - prop.Position)
+        end
+        if engine and isFpv then engine.PlaybackSpeed = 0.9 + velocity.Magnitude / 170 end
+        local camGoal
+        if fpView then
+            camGoal = isFpv and cf * CFrame.new(0, 0.45, -0.9) * CFrame.Angles(0.1, 0, bank * 0.6)
+                or cf * CFrame.new(0, 0.3, -3) * CFrame.Angles(0, 0, bank * 0.5)
+        else
+            camGoal = isFpv and cf * CFrame.new(0, 0.8, 2.8) * CFrame.Angles(-0.1, 0, 0)
+                or cf * CFrame.new(0, 1.1, 4) * CFrame.Angles(-0.08, 0, 0)
+        end
+        if osdLabels then
+            local elapsed = os.clock() - gradStart
+            local g = workspace:Raycast(pos, Vector3.new(0, -400, 0), groundParams)
+            osdLabels.bat.Text = ("BAT %.1fV"):format(16.8 - elapsed * 0.05)
+            osdLabels.time.Text = ("%02d:%02d"):format(math.floor(elapsed / 60), math.floor(elapsed % 60))
+            osdLabels.alt.Text = ("ALT %dm"):format(g and math.floor(g.Distance * 0.28) or 99)
+            osdLabels.spd.Text = ("%d km/h"):format(math.floor(velocity.Magnitude * 0.28 * 3.6))
+        end
+        camCf = camCf:Lerp(camGoal, math.min(dt * (fpView and 25 or 12), 1))
+        cam.CFrame = camCf
+        local left = 45 - (os.clock() - gradStart)
+        if touchDevice then
+            hint.Text = ("stick - fly  ·  drag - aim  ·  buttons - actions  ·  %ds"):format(math.max(0, math.ceil(left)))
+        else
+            hint.Text = ("mouse - aim  ·  W fly  ·  Shift fast  ·  S back  ·  Space/Ctrl up/down  ·  V view  ·  LMB boom  ·  X exit  ·  %ds"):format(math.max(0, math.ceil(left)))
+        end
+        if left <= 0 then detonate(pos) end
+    end)
+end
+
+local function launchDrone()
+    local ok, err = xpcall(droneLaunchInternal, debug.traceback)
+    if ok then return end
+    warn("[ses_get3] Drone error: " .. tostring(err))
+    DroneState.busy = false
+    pcall(function() RunService:UnbindFromRenderStep("RockHubShahedPilot") end)
+    if DroneScreenGuiRef then
+        for _, n in ipairs({ "RockHubShahedHud", "RockHubShahedCross", "RockHubShahedOsd", "RockHubShahedRec", "RockHubDroneMobile" }) do
+            local g = DroneScreenGuiRef:FindFirstChild(n)
+            if g then g:Destroy() end
+        end
+    end
+    for _, d in ipairs(workspace.CurrentCamera:GetChildren()) do
+        if d.Name == "RockHubShahed" then d:Destroy() end
+    end
+    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    UserInputService.MouseIconEnabled = true
+    task.spawn(pcall, function() require(LocalPlayer.PlayerScripts.PlayerModule):GetControls():Enable() end)
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if char then
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BasePart") or d:IsA("Decal") then d.LocalTransparencyModifier = 0 end
+        end
+    end
+    if hum and hum.WalkSpeed == 0 then hum.WalkSpeed, hum.JumpPower = 16, 50 end
+    local cam = workspace.CurrentCamera
+    cam.CameraType = Enum.CameraType.Custom
+    if hum then cam.CameraSubject = hum end
+end
+-- ============ /DRONE ============
 
 -- ============ GUI ============
 local ScreenGui = Instance.new("ScreenGui")
@@ -2522,6 +3540,7 @@ local okParent = pcall(function()
     ScreenGui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
 end)
 if not okParent then pcall(function() ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end) end
+DroneScreenGuiRef = ScreenGui
 
 local COL = {
     bg = Color3.fromRGB(14, 14, 16),
@@ -2940,11 +3959,12 @@ local function buildMM2Gui()
     local VoteBtn     = createNavBtn("🗳️", "Vote Dupe", 5); local VotePage     = createPage(5)
     local AnimBtn     = createNavBtn("🎬", "Анимации", 6);  local AnimPage     = createPage(6)
     local VisBtn      = createNavBtn("🎨", "Визуал", 7);    local VisPage      = createPage(7)
-    local FeaturesBtn = createNavBtn("🧩", "Фишки", 8);     local FeaturesPage = createPage(8)
-    local SettingsBtn = createNavBtn("⚙️", "Настройки", 9); local SettingsPage = createPage(9)
+    local DroneBtn    = createNavBtn("🚀", "Дрон", 8);      local DronePage    = createPage(8)
+    local FeaturesBtn = createNavBtn("🧩", "Фишки", 9);     local FeaturesPage = createPage(9)
+    local SettingsBtn = createNavBtn("⚙️", "Настройки", 10); local SettingsPage = createPage(10)
 
-    pages = {MainPage, BattlePage, FarmPage, FlingPage, VotePage, AnimPage, VisPage, FeaturesPage, SettingsPage}
-    navButtons = {MainBtn, BattleBtn, FarmBtn, FlingBtn, VoteBtn, AnimBtn, VisBtn, FeaturesBtn, SettingsBtn}
+    pages = {MainPage, BattlePage, FarmPage, FlingPage, VotePage, AnimPage, VisPage, DronePage, FeaturesPage, SettingsPage}
+    navButtons = {MainBtn, BattleBtn, FarmBtn, FlingBtn, VoteBtn, AnimBtn, VisBtn, DroneBtn, FeaturesBtn, SettingsBtn}
     for i, b in ipairs(navButtons) do
         b.MouseButton1Click:Connect(function() selectPage(i) end)
     end
@@ -3080,357 +4100,479 @@ local function buildMM2Gui()
     end)
     createActionBtn(FlingPage, "⛔ Остановить", Color3.fromRGB(150, 50, 50), StopFling)
 
-    -- ============ VOTE DUPE ============
-    local voteActivePad
-    local voteLoopThread
-    local voteVotesCast = 0
-    local voteCards = {}
 
-    local function getVoteLobby()
-        return workspace:FindFirstChild("RegularLobby") or workspace:FindFirstChild("Lobby")
-    end
-    local function getVotePad(i)
-        local lobby = getVoteLobby()
-        if not lobby then return nil end
-        return lobby:FindFirstChild("VotePad" .. i) or lobby:FindFirstChild("VotePad" .. i, true)
-    end
-    local function getVotePadCF(pad)
-        if not pad then return nil end
-        if pad:IsA("BasePart") then return pad.CFrame end
-        if pad:IsA("Model") then return pad:GetPivot() end
-        local part = pad:FindFirstChildWhichIsA("BasePart", true)
-        return part and part.CFrame
-    end
+-- ============ VOTE DUPE ============
+local voteActivePad
+local voteLoopThread
+local voteVotesCast = 0
+local voteCards = {}
 
-    local voteGuisByAdornee = {}
-    local function scanVoteGuis()
-        table.clear(voteGuisByAdornee)
-        local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-        if not playerGui then return end
-        for _, g in ipairs(playerGui:GetDescendants()) do
-            if (g:IsA("SurfaceGui") or g:IsA("BillboardGui")) and g.Adornee then
-                local list = voteGuisByAdornee[g.Adornee] or {}
-                voteGuisByAdornee[g.Adornee] = list
-                table.insert(list, g)
+local function getVoteLobby()
+    return workspace:FindFirstChild("RegularLobby") or workspace:FindFirstChild("Lobby")
+end
+local function getVotePad(i)
+    local lobby = getVoteLobby()
+    if not lobby then return nil end
+    return lobby:FindFirstChild("VotePad" .. i) or lobby:FindFirstChild("VotePad" .. i, true)
+end
+local function getVotePadCF(pad)
+    if not pad then return nil end
+    if pad:IsA("BasePart") then return pad.CFrame end
+    if pad:IsA("Model") then return pad:GetPivot() end
+    local part = pad:FindFirstChildWhichIsA("BasePart", true)
+    return part and part.CFrame
+end
+
+local voteGuisByAdornee = {}
+local function scanVoteGuis()
+    table.clear(voteGuisByAdornee)
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then return end
+    for _, g in ipairs(playerGui:GetDescendants()) do
+        if (g:IsA("SurfaceGui") or g:IsA("BillboardGui")) and g.Adornee then
+            local list = voteGuisByAdornee[g.Adornee] or {}
+            voteGuisByAdornee[g.Adornee] = list
+            table.insert(list, g)
+        end
+    end
+end
+local function getVotePadGuis(pad)
+    local out = {}
+    for adornee, list in pairs(voteGuisByAdornee) do
+        if adornee == pad or adornee:IsDescendantOf(pad) then
+            for _, g in ipairs(list) do table.insert(out, g) end
+        end
+    end
+    local voteInfo = pad:FindFirstChild("VoteInfoGui", true)
+    if voteInfo then table.insert(out, voteInfo) end
+    return out
+end
+local function readVotePad(pad)
+    if not pad then return nil, nil end
+    local map, votes
+    for _, g in ipairs(getVotePadGuis(pad)) do
+        if g:IsA("LayerCollector") and not g.Enabled then continue end
+        local box = g:FindFirstChild("Container", true) or g
+        local function hex(name)
+            local o = box:FindFirstChild(name, true)
+            if o and (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Text ~= "" then
+                return o.Text
+            end
+        end
+        map = map or hex("MapName")
+        local v = hex("Votes")
+        if v and (not votes or (tonumber(v:match("%d+")) or 0) > (tonumber(votes:match("%d+")) or 0)) then
+            votes = v
+        end
+    end
+    return map, votes
+end
+local function findVotePadImage(pad)
+    if not pad then return nil end
+    local best, bestScore = nil, 0
+    for _, d in ipairs(pad:GetDescendants()) do
+        local img, name = nil, d.Name:lower()
+        if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+            img = d.Image
+            if img and img ~= "" and d.ImageTransparency < 0.95 then
+                local score = (name:find("map") or name:find("thumb") or name:find("preview")) and 3
+                    or ((name:find("image") or name:find("icon") or name:find("picture")) and 2 or 1)
+                if score > bestScore then best, bestScore = img, score end
+            end
+        elseif d:IsA("Decal") or d:IsA("Texture") then
+            img = d.Texture
+            if img and img ~= "" then
+                local score = (name:find("map") or name:find("thumb")) and 3 or 1
+                if score > bestScore then best, bestScore = img, score end
             end
         end
     end
-    local function getVotePadGuis(pad)
-        local out = {}
-        for adornee, list in pairs(voteGuisByAdornee) do
-            if adornee == pad or adornee:IsDescendantOf(pad) then
-                for _, g in ipairs(list) do table.insert(out, g) end
-            end
-        end
-        local voteInfo = pad:FindFirstChild("VoteInfoGui", true)
-        if voteInfo then table.insert(out, voteInfo) end
-        return out
-    end
-    local function readVotePad(pad)
-        if not pad then return nil, nil end
-        local map, votes
-        for _, g in ipairs(getVotePadGuis(pad)) do
-            if g:IsA("LayerCollector") and not g.Enabled then continue end
-            local box = g:FindFirstChild("Container", true) or g
-            local function hex(name)
-                local o = box:FindFirstChild(name, true)
-                if o and (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Text ~= "" then
-                    return o.Text
-                end
-            end
-            map = map or hex("MapName")
-            local v = hex("Votes")
-            if v and (not votes or (tonumber(v:match("%d+")) or 0) > (tonumber(votes:match("%d+")) or 0)) then
-                votes = v
-            end
-        end
-        return map, votes
-    end
-    local function findVotePadImage(pad)
-        if not pad then return nil end
-        local best, bestScore = nil, 0
-        for _, d in ipairs(pad:GetDescendants()) do
-            local img, name = nil, d.Name:lower()
-            if d:IsA("ImageLabel") or d:IsA("ImageButton") then
-                img = d.Image
-                if img and img ~= "" and d.ImageTransparency < 0.95 then
-                    local score = (name:find("map") or name:find("thumb") or name:find("preview")) and 3
-                        or ((name:find("image") or name:find("icon") or name:find("picture")) and 2 or 1)
-                    if score > bestScore then best, bestScore = img, score end
-                end
-            elseif d:IsA("Decal") or d:IsA("Texture") then
-                img = d.Texture
-                if img and img ~= "" then
-                    local score = (name:find("map") or name:find("thumb")) and 3 or 1
-                    if score > bestScore then best, bestScore = img, score end
-                end
-            end
-        end
-        return best
-    end
+    return best
+end
 
-    createPageHeader(VotePage, "Vote Dupe Map", "Зацикливание голосования за карту")
-    createSectionLabel(VotePage, "ВЫБОР КАРТЫ")
+createPageHeader(VotePage, "Vote Dupe Map", "Зацикливание голосования за карту")
+createSectionLabel(VotePage, "ВЫБОР КАРТЫ")
 
-    local voteGrid = Instance.new("Frame")
-    voteGrid.Size = UDim2.new(1, 0, 0, 0)
-    voteGrid.AutomaticSize = Enum.AutomaticSize.Y
-    voteGrid.BackgroundTransparency = 1
-    voteGrid.Parent = VotePage
-    local voteGridLayout = Instance.new("UIGridLayout")
-    voteGridLayout.CellSize = UDim2.new(1, 0, 0, 76)
-    voteGridLayout.CellPadding = UDim2.new(0, 0, 0, 8)
-    voteGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    voteGridLayout.Parent = voteGrid
+local voteGrid = Instance.new("Frame")
+voteGrid.Size = UDim2.new(1, 0, 0, 0)
+voteGrid.AutomaticSize = Enum.AutomaticSize.Y
+voteGrid.BackgroundTransparency = 1
+voteGrid.Parent = VotePage
+local voteGridLayout = Instance.new("UIGridLayout")
+voteGridLayout.CellSize = UDim2.new(1, 0, 0, 76)
+voteGridLayout.CellPadding = UDim2.new(0, 0, 0, 8)
+voteGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+voteGridLayout.Parent = voteGrid
 
-    for i = 1, 3 do
-        local card = Instance.new("TextButton")
-        card.Size = UDim2.new(1, 0, 1, 0)
-        card.BackgroundColor3 = COL.card
-        card.Text = ""
-        card.BorderSizePixel = 0
-        card.LayoutOrder = i
-        card.AutoButtonColor = false
-        card.ClipsDescendants = true
-        card.Parent = voteGrid
-        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
-        local cardStroke = Instance.new("UIStroke", card)
-        cardStroke.Color = COL.border
-        cardStroke.Thickness = 1
+for i = 1, 3 do
+    local card = Instance.new("TextButton")
+    card.Size = UDim2.new(1, 0, 1, 0)
+    card.BackgroundColor3 = COL.card
+    card.Text = ""
+    card.BorderSizePixel = 0
+    card.LayoutOrder = i
+    card.AutoButtonColor = false
+    card.ClipsDescendants = true
+    card.Parent = voteGrid
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+    local cardStroke = Instance.new("UIStroke", card)
+    cardStroke.Color = COL.border
+    cardStroke.Thickness = 1
 
-        local thumb = Instance.new("Frame")
-        thumb.Size = UDim2.new(0, 76, 0, 76)
-        thumb.BackgroundColor3 = COL.card
-        thumb.ClipsDescendants = true
-        thumb.ZIndex = 2
-        thumb.Parent = card
-        Instance.new("UICorner", thumb).CornerRadius = UDim.new(0, 10)
+    local thumb = Instance.new("Frame")
+    thumb.Size = UDim2.new(0, 76, 0, 76)
+    thumb.BackgroundColor3 = COL.card
+    thumb.ClipsDescendants = true
+    thumb.ZIndex = 2
+    thumb.Parent = card
+    Instance.new("UICorner", thumb).CornerRadius = UDim.new(0, 10)
 
-        local ph = Instance.new("TextLabel")
-        ph.Text = "?"
-        ph.Font = Enum.Font.GothamBlack
-        ph.TextSize = 22
-        ph.TextColor3 = COL.textDim
-        ph.BackgroundTransparency = 1
-        ph.Size = UDim2.fromScale(1, 1)
-        ph.ZIndex = 3
-        ph.Parent = thumb
+    local ph = Instance.new("TextLabel")
+    ph.Text = "?"
+    ph.Font = Enum.Font.GothamBlack
+    ph.TextSize = 22
+    ph.TextColor3 = COL.textDim
+    ph.BackgroundTransparency = 1
+    ph.Size = UDim2.fromScale(1, 1)
+    ph.ZIndex = 3
+    ph.Parent = thumb
 
-        local img = Instance.new("ImageLabel")
-        img.Size = UDim2.fromScale(1, 1)
-        img.BackgroundTransparency = 1
-        img.ScaleType = Enum.ScaleType.Crop
-        img.ImageColor3 = Color3.fromRGB(220, 220, 220)
-        img.ImageTransparency = 1
-        img.ZIndex = 4
-        img.Parent = thumb
-        Instance.new("UICorner", img).CornerRadius = UDim.new(0, 10)
+    local img = Instance.new("ImageLabel")
+    img.Size = UDim2.fromScale(1, 1)
+    img.BackgroundTransparency = 1
+    img.ScaleType = Enum.ScaleType.Crop
+    img.ImageColor3 = Color3.fromRGB(220, 220, 220)
+    img.ImageTransparency = 1
+    img.ZIndex = 4
+    img.Parent = thumb
+    Instance.new("UICorner", img).CornerRadius = UDim.new(0, 10)
 
-        local nameLbl = Instance.new("TextLabel")
-        nameLbl.Size = UDim2.new(1, -90, 0, 22)
-        nameLbl.Position = UDim2.new(0, 86, 0, 10)
-        nameLbl.BackgroundTransparency = 1
-        nameLbl.Text = "LOADING..."
-        nameLbl.TextColor3 = COL.text
-        nameLbl.Font = Enum.Font.GothamBold
-        nameLbl.TextSize = 14
-        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-        nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-        nameLbl.ZIndex = 3
-        nameLbl.Parent = card
+    local nameLbl = Instance.new("TextLabel")
+    nameLbl.Size = UDim2.new(1, -90, 0, 22)
+    nameLbl.Position = UDim2.new(0, 86, 0, 10)
+    nameLbl.BackgroundTransparency = 1
+    nameLbl.Text = "LOADING..."
+    nameLbl.TextColor3 = COL.text
+    nameLbl.Font = Enum.Font.GothamBold
+    nameLbl.TextSize = 14
+    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+    nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+    nameLbl.ZIndex = 3
+    nameLbl.Parent = card
 
-        local votesLbl = Instance.new("TextLabel")
-        votesLbl.Size = UDim2.new(1, -90, 0, 16)
-        votesLbl.Position = UDim2.new(0, 86, 0, 34)
-        votesLbl.BackgroundTransparency = 1
-        votesLbl.Text = "votes —"
-        votesLbl.TextColor3 = COL.textDim
-        votesLbl.Font = Enum.Font.Gotham
-        votesLbl.TextSize = 12
-        votesLbl.TextXAlignment = Enum.TextXAlignment.Left
-        votesLbl.ZIndex = 3
-        votesLbl.Parent = card
+    local votesLbl = Instance.new("TextLabel")
+    votesLbl.Size = UDim2.new(1, -90, 0, 16)
+    votesLbl.Position = UDim2.new(0, 86, 0, 34)
+    votesLbl.BackgroundTransparency = 1
+    votesLbl.Text = "votes —"
+    votesLbl.TextColor3 = COL.textDim
+    votesLbl.Font = Enum.Font.Gotham
+    votesLbl.TextSize = 12
+    votesLbl.TextXAlignment = Enum.TextXAlignment.Left
+    votesLbl.ZIndex = 3
+    votesLbl.Parent = card
 
-        local statusLbl = Instance.new("TextLabel")
-        statusLbl.Size = UDim2.new(1, -90, 0, 14)
-        statusLbl.Position = UDim2.new(0, 86, 0, 54)
-        statusLbl.BackgroundTransparency = 1
-        statusLbl.Text = "idle"
-        statusLbl.TextColor3 = COL.textDim
-        statusLbl.Font = Enum.Font.GothamBold
-        statusLbl.TextSize = 11
-        statusLbl.TextXAlignment = Enum.TextXAlignment.Left
-        statusLbl.ZIndex = 3
-        statusLbl.Parent = card
+    local statusLbl = Instance.new("TextLabel")
+    statusLbl.Size = UDim2.new(1, -90, 0, 14)
+    statusLbl.Position = UDim2.new(0, 86, 0, 54)
+    statusLbl.BackgroundTransparency = 1
+    statusLbl.Text = "idle"
+    statusLbl.TextColor3 = COL.textDim
+    statusLbl.Font = Enum.Font.GothamBold
+    statusLbl.TextSize = 11
+    statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+    statusLbl.ZIndex = 3
+    statusLbl.Parent = card
 
-        voteCards[i] = {
-            card = card, stroke = cardStroke, thumb = thumb, img = img, ph = ph,
-            name = nameLbl, votes = votesLbl, status = statusLbl, image = nil, map = nil,
-        }
+    voteCards[i] = {
+        card = card, stroke = cardStroke, thumb = thumb, img = img, ph = ph,
+        name = nameLbl, votes = votesLbl, status = statusLbl, image = nil, map = nil,
+    }
 
-        card.MouseEnter:Connect(function()
-            TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.cardHover}):Play()
-        end)
-        card.MouseLeave:Connect(function()
-            TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.card}):Play()
-        end)
-    end
-
-    local function relayoutVoteCards()
-        for i, c in ipairs(voteCards) do
-            local on = voteActivePad == i
-            TweenService:Create(c.stroke, TweenInfo.new(0.2), {
-                Color = on and COL.accent or COL.border,
-                Thickness = on and 1.5 or 1,
-            }):Play()
-            c.status.TextColor3 = on and COL.accent or COL.textDim
-            c.status.Text = on and ("voting " .. voteVotesCast) or "idle"
-        end
-    end
-
-    local function stopVoteLoop(silent)
-        if voteLoopThread then pcall(task.cancel, voteLoopThread); voteLoopThread = nil end
-        voteActivePad = nil
-        relayoutVoteCards()
-    end
-    local function votePadVotes(i)
-        local pad = getVotePad(i)
-        if not pad then return false end
-        local map, votes = readVotePad(pad)
-        if not (map and votes) then return false end
-        return true, tonumber(votes:match("%d+"))
-    end
-    local function startVoteLoop(i)
-        stopVoteLoop(true)
-        voteActivePad = i
-        voteVotesCast = 0
-        relayoutVoteCards()
-        voteLoopThread = task.spawn(function()
-            local best, stale = nil, 0
-            while voteActivePad == i do
-                scanVoteGuis()
-                local active, count = votePadVotes(i)
-                if not active then stopVoteLoop(true); return end
-                best = best or count
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                local target = getVotePadCF(getVotePad(i))
-                if hum and hum.Health > 0 and root and target then
-                    root.CFrame = target + Vector3.new(0, 2.5, 0)
-                    local before = count
-                    local waitStart = os.clock()
-                    repeat
-                        RunService.Heartbeat:Wait()
-                        root.CFrame = target + Vector3.new(0, 2.5, 0)
-                        scanVoteGuis()
-                        local _, c = votePadVotes(i)
-                        if c and before and c > before then break end
-                    until os.clock() - waitStart >= 0.4 or voteActivePad ~= i
-                    if voteActivePad ~= i then break end
-                    scanVoteGuis()
-                    active, count = votePadVotes(i)
-                    if not active then stopVoteLoop(true); return end
-                    if count and best and count <= best then
-                        stale += 1
-                        if stale >= 3 then stopVoteLoop(true); return end
-                    else stale = 0; best = count or best end
-                    voteVotesCast += 1
-                    if hum.Health > 0 then hum.Health = 0 end
-                    local newChar = LocalPlayer.CharacterAdded:Wait()
-                    newChar:WaitForChild("HumanoidRootPart", 3)
-                    task.wait(0.12)
-                elseif not hum or hum.Health <= 0 then
-                    local respawned = LocalPlayer.CharacterAdded:Wait()
-                    respawned:WaitForChild("HumanoidRootPart", 3)
-                    task.wait(0.12)
-                else task.wait(0.2) end
-            end
-        end)
-    end
-
-    for i, c in ipairs(voteCards) do
-        c.card.MouseButton1Click:Connect(function()
-            if isUnloaded() then return end
-            if voteActivePad == i then stopVoteLoop() else startVoteLoop(i) end
-        end)
-    end
-
-    createActionBtn(VotePage, "⛔ Остановить Vote Dupe", Color3.fromRGB(150, 50, 50), function()
-        if voteActivePad then stopVoteLoop() end
+    card.MouseEnter:Connect(function()
+        TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.cardHover}):Play()
     end)
+    card.MouseLeave:Connect(function()
+        TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.card}):Play()
+    end)
+end
 
-    createSectionLabel(VotePage, "ИНФО")
-    local voteInfoLbl = Instance.new("TextLabel")
-    voteInfoLbl.Size = UDim2.new(1, 0, 0, 60)
-    voteInfoLbl.BackgroundColor3 = COL.card
-    voteInfoLbl.BorderSizePixel = 0
-    voteInfoLbl.Text = "Выбери карту выше чтобы начать дупать. Превью карт показываются если доступны."
-    voteInfoLbl.TextColor3 = COL.textDim
-    voteInfoLbl.Font = Enum.Font.Gotham
-    voteInfoLbl.TextSize = 11
-    voteInfoLbl.TextWrapped = true
-    voteInfoLbl.Parent = VotePage
-    Instance.new("UICorner", voteInfoLbl).CornerRadius = UDim.new(0, 10)
+local function relayoutVoteCards()
+    for i, c in ipairs(voteCards) do
+        local on = voteActivePad == i
+        TweenService:Create(c.stroke, TweenInfo.new(0.2), {
+            Color = on and COL.accent or COL.border,
+            Thickness = on and 1.5 or 1,
+        }):Play()
+        c.status.TextColor3 = on and COL.accent or COL.textDim
+        c.status.Text = on and ("voting " .. voteVotesCast) or "idle"
+    end
+end
 
-    task.spawn(function()
-        while not isUnloaded() do
-            pcall(function()
+local function stopVoteLoop(silent)
+    if voteLoopThread then pcall(task.cancel, voteLoopThread); voteLoopThread = nil end
+    voteActivePad = nil
+    relayoutVoteCards()
+end
+local function votePadVotes(i)
+    local pad = getVotePad(i)
+    if not pad then return false end
+    local map, votes = readVotePad(pad)
+    if not (map and votes) then return false end
+    return true, tonumber(votes:match("%d+"))
+end
+local function startVoteLoop(i)
+    stopVoteLoop(true)
+    voteActivePad = i
+    voteVotesCast = 0
+    relayoutVoteCards()
+    voteLoopThread = task.spawn(function()
+        local best, stale = nil, 0
+        while voteActivePad == i do
+            scanVoteGuis()
+            local active, count = votePadVotes(i)
+            if not active then stopVoteLoop(true); return end
+            best = best or count
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local target = getVotePadCF(getVotePad(i))
+            if hum and hum.Health > 0 and root and target then
+                root.CFrame = target + Vector3.new(0, 2.5, 0)
+                local before = count
+                local waitStart = os.clock()
+                repeat
+                    RunService.Heartbeat:Wait()
+                    root.CFrame = target + Vector3.new(0, 2.5, 0)
+                    scanVoteGuis()
+                    local _, c = votePadVotes(i)
+                    if c and before and c > before then break end
+                until os.clock() - waitStart >= 0.4 or voteActivePad ~= i
+                if voteActivePad ~= i then break end
                 scanVoteGuis()
-                local lobby = getVoteLobby()
-                local roundActive = (lobby == nil)
-                for i, c in ipairs(voteCards) do
-                    if roundActive then
-                        c.card.Visible = false
-                        c.map = nil; c.image = nil
+                active, count = votePadVotes(i)
+                if not active then stopVoteLoop(true); return end
+                if count and best and count <= best then
+                    stale += 1
+                    if stale >= 3 then stopVoteLoop(true); return end
+                else stale = 0; best = count or best end
+                voteVotesCast += 1
+                if hum.Health > 0 then hum.Health = 0 end
+                local newChar = LocalPlayer.CharacterAdded:Wait()
+                newChar:WaitForChild("HumanoidRootPart", 3)
+                task.wait(0.12)
+            elseif not hum or hum.Health <= 0 then
+                local respawned = LocalPlayer.CharacterAdded:Wait()
+                respawned:WaitForChild("HumanoidRootPart", 3)
+                task.wait(0.12)
+            else task.wait(0.2) end
+        end
+    end)
+end
+
+for i, c in ipairs(voteCards) do
+    c.card.MouseButton1Click:Connect(function()
+        if isUnloaded() then return end
+        if voteActivePad == i then stopVoteLoop() else startVoteLoop(i) end
+    end)
+end
+
+createActionBtn(VotePage, "⛔ Остановить Vote Dupe", Color3.fromRGB(150, 50, 50), function()
+    if voteActivePad then stopVoteLoop() end
+end)
+
+createSectionLabel(VotePage, "ИНФО")
+local voteInfoLbl = Instance.new("TextLabel")
+voteInfoLbl.Size = UDim2.new(1, 0, 0, 60)
+voteInfoLbl.BackgroundColor3 = COL.card
+voteInfoLbl.BorderSizePixel = 0
+voteInfoLbl.Text = "Выбери карту выше чтобы начать дупать. Превью карт показываются если доступны."
+voteInfoLbl.TextColor3 = COL.textDim
+voteInfoLbl.Font = Enum.Font.Gotham
+voteInfoLbl.TextSize = 11
+voteInfoLbl.TextWrapped = true
+voteInfoLbl.Parent = VotePage
+Instance.new("UICorner", voteInfoLbl).CornerRadius = UDim.new(0, 10)
+
+task.spawn(function()
+    while not isUnloaded() do
+        pcall(function()
+            scanVoteGuis()
+            local lobby = getVoteLobby()
+            local roundActive = (lobby == nil)
+            for i, c in ipairs(voteCards) do
+                if roundActive then
+                    c.card.Visible = false
+                    c.map = nil; c.image = nil
+                    c.img.Image = ""; c.img.ImageTransparency = 1
+                    c.ph.Visible = true; c.ph.Text = "?"
+                    c.name.Text = ""; c.votes.Text = ""; c.status.Text = ""
+                else
+                    c.card.Visible = true
+                    local pad = getVotePad(i)
+                    local map, votes
+                    if pad then map, votes = readVotePad(pad) end
+                    if not pad then
+                        c.map = nil
+                        c.name.Text = "UNAVAILABLE"
                         c.img.Image = ""; c.img.ImageTransparency = 1
                         c.ph.Visible = true; c.ph.Text = "?"
-                        c.name.Text = ""; c.votes.Text = ""; c.status.Text = ""
-                    else
-                        c.card.Visible = true
-                        local pad = getVotePad(i)
-                        local map, votes
-                        if pad then map, votes = readVotePad(pad) end
-                        if not pad then
-                            c.map = nil
-                            c.name.Text = "UNAVAILABLE"
-                            c.img.Image = ""; c.img.ImageTransparency = 1
-                            c.ph.Visible = true; c.ph.Text = "?"
-                        elseif map then
-                            if map ~= c.map then
-                                c.map = map
-                                c.name.Text = string.upper(map)
-                                local initials = ""
-                                for w in map:gmatch("%S+") do initials = initials .. w:sub(1,1):upper() end
-                                c.ph.Text = initials:sub(1, 3)
-                            end
-                            local image = findVotePadImage(pad)
-                            if image and c.image ~= image then
-                                c.image = image
-                                c.img.Image = image
-                                c.img.ImageTransparency = 0
-                                c.ph.Visible = false
-                            elseif not image then
-                                c.img.Image = ""
-                                c.img.ImageTransparency = 1
-                                c.ph.Visible = true
-                            end
-                        else
-                            c.map = nil; c.image = nil
-                            c.name.Text = "WAITING..."
-                            c.img.Image = ""; c.img.ImageTransparency = 1
-                            c.ph.Visible = true; c.ph.Text = "?"
+                    elseif map then
+                        if map ~= c.map then
+                            c.map = map
+                            c.name.Text = string.upper(map)
+                            local initials = ""
+                            for w in map:gmatch("%S+") do initials = initials .. w:sub(1,1):upper() end
+                            c.ph.Text = initials:sub(1, 3)
                         end
-                        c.votes.Text = "votes " .. (votes or "—")
+                        local image = findVotePadImage(pad)
+                        if image and c.image ~= image then
+                            c.image = image
+                            c.img.Image = image
+                            c.img.ImageTransparency = 0
+                            c.ph.Visible = false
+                        elseif not image then
+                            c.img.Image = ""
+                            c.img.ImageTransparency = 1
+                            c.ph.Visible = true
+                        end
+                    else
+                        c.map = nil; c.image = nil
+                        c.name.Text = "WAITING..."
+                        c.img.Image = ""; c.img.ImageTransparency = 1
+                        c.ph.Visible = true; c.ph.Text = "?"
                     end
+                    c.votes.Text = "votes " .. (votes or "—")
                 end
-                if voteActivePad and (roundActive or not votePadVotes(voteActivePad)) then
-                    stopVoteLoop(true)
-                end
-            end)
-            task.wait(0.5)
+            end
+            if voteActivePad and (roundActive or not votePadVotes(voteActivePad)) then
+                stopVoteLoop(true)
+            end
+        end)
+        task.wait(0.5)
+    end
+end)
+
+    -- DRONE
+    createPageHeader(DronePage, "Дрон", "Shahed-136 / FPV камикадзе")
+    createSectionLabel(DronePage, "ТИП")
+    local droneTypeRow = Instance.new("Frame")
+    droneTypeRow.Size = UDim2.new(1, 0, 0, 0)
+    droneTypeRow.AutomaticSize = Enum.AutomaticSize.Y
+    droneTypeRow.BackgroundTransparency = 1
+    droneTypeRow.Parent = DronePage
+    local droneTypeGrid = Instance.new("UIGridLayout")
+    droneTypeGrid.CellSize = UDim2.new(0.5, -4, 0, 38)
+    droneTypeGrid.CellPadding = UDim2.new(0, 6, 0, 6)
+    droneTypeGrid.SortOrder = Enum.SortOrder.LayoutOrder
+    droneTypeGrid.Parent = droneTypeRow
+    local droneTypeBtns = {}
+    local function refreshDroneType()
+        for n, b in pairs(droneTypeBtns) do
+            local on = (DroneState.kind == n)
+            b.BackgroundColor3 = on and COL.accent or COL.card
+            b.TextColor3 = on and Color3.fromRGB(255,255,255) or COL.text
         end
+    end
+    for i, name in ipairs({ "Shahed", "FPV" }) do
+        local b = Instance.new("TextButton")
+        b.BackgroundColor3 = COL.card
+        b.Text = name
+        b.TextColor3 = COL.text
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 13
+        b.BorderSizePixel = 0
+        b.LayoutOrder = i
+        b.Parent = droneTypeRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10)
+        local s = Instance.new("UIStroke", b); s.Color = COL.border; s.Thickness = 1
+        droneTypeBtns[name] = b
+        b.MouseButton1Click:Connect(function()
+            DroneState.kind = name
+            Config.DroneKind = name
+            saveConfig()
+            droneTemplate = droneCache[name]
+            refreshDroneType()
+        end)
+    end
+    refreshDroneType()
+
+    createSectionLabel(DronePage, "УДАР")
+    local droneImpactRow = Instance.new("Frame")
+    droneImpactRow.Size = UDim2.new(1, 0, 0, 0)
+    droneImpactRow.AutomaticSize = Enum.AutomaticSize.Y
+    droneImpactRow.BackgroundTransparency = 1
+    droneImpactRow.Parent = DronePage
+    local droneImpactGrid = Instance.new("UIGridLayout")
+    droneImpactGrid.CellSize = UDim2.new(0.5, -4, 0, 38)
+    droneImpactGrid.CellPadding = UDim2.new(0, 6, 0, 6)
+    droneImpactGrid.SortOrder = Enum.SortOrder.LayoutOrder
+    droneImpactGrid.Parent = droneImpactRow
+    local droneImpactBtns = {}
+    local function refreshDroneImpact()
+        for n, b in pairs(droneImpactBtns) do
+            local on = (DroneState.impact == n)
+            b.BackgroundColor3 = on and COL.accent or COL.card
+            b.TextColor3 = on and Color3.fromRGB(255,255,255) or COL.text
+        end
+    end
+    for i, name in ipairs({ "Kill", "Fling" }) do
+        local b = Instance.new("TextButton")
+        b.BackgroundColor3 = COL.card
+        b.Text = name
+        b.TextColor3 = COL.text
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 13
+        b.BorderSizePixel = 0
+        b.LayoutOrder = i
+        b.Parent = droneImpactRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10)
+        local s = Instance.new("UIStroke", b); s.Color = COL.border; s.Thickness = 1
+        droneImpactBtns[name] = b
+        b.MouseButton1Click:Connect(function()
+            DroneState.impact = name
+            Config.DroneImpact = name
+            saveConfig()
+            refreshDroneImpact()
+        end)
+    end
+    refreshDroneImpact()
+
+    createSectionLabel(DronePage, "ЗАПУСК")
+    createActionBtn(DronePage, "🚀 Запустить дрон", COL.accent, function()
+        task.spawn(launchDrone)
     end)
+
+    createSectionLabel(DronePage, "УПРАВЛЕНИЕ")
+    local ctrlHint = Instance.new("TextLabel")
+    ctrlHint.Size = UDim2.new(1, 0, 0, 160)
+    ctrlHint.BackgroundColor3 = COL.card
+    ctrlHint.BorderSizePixel = 0
+    ctrlHint.Text = [[Мышь — наводить
+W — вперёд   S — назад
+Shift — быстрее
+Space / Q — вверх
+Ctrl — вниз
+A / D — поворот
+V — вид от 1-го лица
+ЛКМ — взорвать
+X — выйти
+
+Kill — нужен нож (маньяк)
+Fling — доступно всем ролям]]
+    ctrlHint.TextColor3 = COL.text
+    ctrlHint.Font = Enum.Font.Gotham
+    ctrlHint.TextSize = 12
+    ctrlHint.TextWrapped = true
+    ctrlHint.TextXAlignment = Enum.TextXAlignment.Left
+    ctrlHint.TextYAlignment = Enum.TextYAlignment.Top
+    ctrlHint.Parent = DronePage
+    Instance.new("UICorner", ctrlHint).CornerRadius = UDim.new(0, 10)
+    local ctrlPad = Instance.new("UIPadding", ctrlHint)
+    ctrlPad.PaddingLeft = UDim.new(0, 10)
+    ctrlPad.PaddingRight = UDim.new(0, 10)
+    ctrlPad.PaddingTop = UDim.new(0, 8)
+    ctrlPad.PaddingBottom = UDim.new(0, 8)
 
     -- ANIMATIONS UI
     local FAV_FILE = "ses_get3_favorites.json"
@@ -3789,6 +4931,95 @@ local function buildMM2Gui()
             animSpeedInput.Text = tostring(AnimState.AnimationSpeed)
         end
     end)
+-- ============ KEEP ANIMATION ON DEATH ============
+local KeepAnimEnabled = false
+local keepAnimConn = nil
+local reapplyBusy = false
+
+local function applyKeepAnim()
+    if reapplyBusy then return end
+    reapplyBusy = true
+    task.wait(1.2)
+    if not KeepAnimEnabled then reapplyBusy = false; return end
+    local char = LocalPlayer.Character
+    if not char then reapplyBusy = false; return end
+    local animate = char:FindFirstChild("Animate")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not animate or not hum then reapplyBusy = false; return end
+
+    if _KeepAnimData.bundle then
+        pcall(applyBundle, _KeepAnimData.bundle)
+    elseif _KeepAnimData.emote then
+        task.wait(0.4)
+        if KeepAnimEnabled then
+            pcall(applyEmoteByName, _KeepAnimData.emote)
+        end
+    end
+    reapplyBusy = false
+end
+
+if not keepAnimConn then
+    keepAnimConn = LocalPlayer.CharacterAdded:Connect(function()
+        if KeepAnimEnabled then
+            task.spawn(applyKeepAnim)
+        end
+    end)
+end
+
+createSectionLabel(AnimPage, "СОХРАНЕНИЕ АНИМАЦИИ")
+createToggle(AnimPage, "Keep Animation on Death",
+    "После респавна вернуть последнюю анимацию/бандл",
+    false,
+    function(v)
+        KeepAnimEnabled = v
+        if v and (AnimState.SelectedAnimation ~= "" or AnimState.LastEmote ~= "") then
+            -- сразу подхватим то, что уже выбрано
+            if AnimState.SelectedAnimation ~= "" and not _KeepAnimData.bundle then
+                _KeepAnimData.bundle = AnimState.SelectedAnimation
+                _KeepAnimData.emote = nil
+            elseif AnimState.LastEmote ~= "" and not _KeepAnimData.emote then
+                _KeepAnimData.emote = AnimState.LastEmote
+                _KeepAnimData.bundle = nil
+            end
+        end
+        if not v then
+            -- не сбрасываем последнее, чтобы можно было вернуть тумблер обратно
+        end
+    end)
+
+createActionBtn(AnimPage, "🔁 Применить сейчас", COL.green, function()
+    if _KeepAnimData.bundle then
+        pcall(applyBundle, _KeepAnimData.bundle)
+    elseif _KeepAnimData.emote then
+        pcall(applyEmoteByName, _KeepAnimData.emote)
+    else
+        warn("[KeepAnim] Ничего не выбрано — выбери бандл или эмоцию сначала")
+    end
+end)
+
+local keepStatusLbl = Instance.new("TextLabel")
+keepStatusLbl.Size = UDim2.new(1, 0, 0, 42)
+keepStatusLbl.BackgroundColor3 = COL.card
+keepStatusLbl.BorderSizePixel = 0
+keepStatusLbl.Text = "Сохранено: —"
+keepStatusLbl.TextColor3 = COL.text
+keepStatusLbl.Font = Enum.Font.GothamMedium
+keepStatusLbl.TextSize = 12
+keepStatusLbl.Parent = AnimPage
+Instance.new("UICorner", keepStatusLbl).CornerRadius = UDim.new(0, 10)
+
+task.spawn(function()
+    while not isUnloaded() do
+        task.wait(0.5)
+        local txt = "—"
+        if _KeepAnimData.bundle then
+            txt = "🎬 " .. _KeepAnimData.bundle
+        elseif _KeepAnimData.emote then
+            txt = "💃 " .. _KeepAnimData.emote
+        end
+        keepStatusLbl.Text = "Сохранено: " .. txt
+    end
+end)
     createActionBtn(AnimPage, "🔄 Сбросить анимации", COL.accent, function()
         StopEmotes()
         local char = LocalPlayer.Character
@@ -3818,14 +5049,12 @@ local function buildMM2Gui()
 
     -- VISUAL
     createPageHeader(VisPage, "Визуал", "Эффекты, скины и внешний вид")
-
     createSectionLabel(VisPage, "ШАДЕР (ОСВЕЩЕНИЕ + ФОН)")
     createToggle(VisPage, "Shader", "Включить цветокоррекцию и фон", Config.Shader, function(v)
         Config.Shader = v
         saveConfig()
         if v then applyShader() else removeShader() end
     end)
-
     local shaderPresets = {"Natural", "Vivid", "Cold", "Warm", "Noir", "Neon", "Night", "DarkNight", "PurpleNight", "Sunset"}
     local shaderRow = Instance.new("Frame")
     shaderRow.Size = UDim2.new(1, 0, 0, 0)
@@ -3837,7 +5066,6 @@ local function buildMM2Gui()
     shaderGrid.CellPadding = UDim2.new(0, 6, 0, 6)
     shaderGrid.SortOrder = Enum.SortOrder.LayoutOrder
     shaderGrid.Parent = shaderRow
-
     local shaderBtns = {}
     local function refreshShaderBtns()
         for name, b in pairs(shaderBtns) do
@@ -3875,7 +5103,6 @@ local function buildMM2Gui()
         saveConfig()
         if v then buildAura() else removeAura() end
     end)
-
     local auraStyles = {"Energy", "Fire", "Ice", "Shadow", "Gold", "Toxic", "Rainbow"}
     local auraRow = Instance.new("Frame")
     auraRow.Size = UDim2.new(1, 0, 0, 0)
@@ -3936,7 +5163,6 @@ local function buildMM2Gui()
             orbsCountInput.Text = tostring(Config.OrbsCount)
         end
     end)
-
     local orbsStyleRow = Instance.new("Frame")
     orbsStyleRow.Size = UDim2.new(1, 0, 0, 0)
     orbsStyleRow.AutomaticSize = Enum.AutomaticSize.Y
@@ -4018,7 +5244,6 @@ local function buildMM2Gui()
             restoreGunSkin(g)
         end
     end)
-
     local gunSkinRow = Instance.new("Frame")
     gunSkinRow.Size = UDim2.new(1, 0, 0, 0)
     gunSkinRow.AutomaticSize = Enum.AutomaticSize.Y
@@ -4644,4 +5869,4 @@ if IS_MM2 and MainFrame then
     end)
 end
 
-print("[ses_get3] v0.79 Pulse Hub Edition + VISUAL TAB v2 + Night Sky + Fixed Headless/Korblox + SCAM MURDERER + VOTE DUPE загружен!")
+print("[ses_get3] v0.80 Pulse Hub Edition + VISUAL v2 + DRONE загружен!")
