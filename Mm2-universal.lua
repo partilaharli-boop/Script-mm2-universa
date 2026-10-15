@@ -1,4 +1,5 @@
--- SES_GET3 ULTIMATE v0.74 | Pulse Hub Edition | MM2 + VoteDupe + Anim + Mascot + Invisible + GodMode (only non-MM2) + NewESP
+-- SES_GET3 ULTIMATE v0.78 | Pulse Hub Edition + VISUAL TAB v2 + Fixed Headless/Korblox + Night Sky + SCAM MURDERER
+-- MM2 + VoteDupe + Anim + Mascot + Invisible + GodMode (only non-MM2) + NewESP + Visual
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -8,8 +9,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
-local ContentProvider = game:GetService("ContentProvider")
-local SoundService = game:GetService("SoundService")
 
 local SAVE_FILE = "ses_get3_config.json"
 local Config = {
@@ -24,11 +23,6 @@ local Config = {
     ESPOutlineTransparency = 0,
     ESPTeamCheck = false,
     ESPKey = "RightShift",
-    BackTrack = false, BackTrackTarget = "Others", BackTrackStyle = "Ghost",
-    BackTrackColor = "Shimmer", BackTrackMaterial = "ForceField",
-    BackTrackOutline = true, BackTrackMarker = true, BackTrackDelay = 400,
-    BackTrackCount = 4, BackTrackDist = 150, BackTrackOpacity = 70,
-    BackTrackCustomColor = {105, 205, 255},
     Shader = false, ShaderPreset = "Natural",
     AuraEnabled = false, AuraStyle = "Energy", AuraCustomColor = {105, 205, 255},
     AuraIntensity = 55, AuraSize = 100,
@@ -39,6 +33,10 @@ local Config = {
     GunSkinEnabled = false, GunSkinModel = "Green", GunSkinSize = 100, GunSkinTurn = 0,
     Invisible = false,
     GodMode = false,
+    -- SCAM MURDERER
+    ScamMurderer = false,
+    ScamMurdererRange = 40,
+    ScamMurdererAutoOff = true,
 }
 local AVATAR_ID = "82234486684685"
 local FlingOnDeathEnabled = false
@@ -268,13 +266,12 @@ LocalPlayer.CharacterAdded:Connect(function()
     end
 end)
 
--- ============ GOD MODE (ТОЛЬКО для НЕ-MM2: паркуры с лазерами, Tower of Hell, Mega Parkour и т.п.) ============
+-- ============ GOD MODE ============
 local godModeConn = nil
 
 local function applyGodMode()
     if godModeConn then godModeConn:Disconnect(); godModeConn = nil end
 
-    -- GodMode работает ТОЛЬКО вне MM2
     if IS_MM2 then
         local hum0 = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
         if hum0 then
@@ -305,9 +302,7 @@ local function applyGodMode()
     end)
 end
 
-local function updateGodMode()
-    applyGodMode()
-end
+local function updateGodMode() applyGodMode() end
 
 LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(0.5)
@@ -316,24 +311,622 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     end
 end)
 
--- ============ NEW ESP (для не-MM2 игр, с меню выбора цвета) ============
+-- ============ VISUAL EFFECTS CORE v2 ============
+local VisualState = {
+    shader = { instance = nil, bloom = nil, conn = nil, sky = nil, stars = nil, starsConn = nil },
+    aura = { model = nil, conn = nil, parts = {}, light = nil, ring = nil },
+    orbs = { model = nil, conn = nil, parts = {} },
+    skyworms = { folder = nil, conn = nil, parts = {} },
+    avatar = { applied = false, conns = {} },
+    gunskin = { conn = nil, original = nil },
+}
+
+-- ---------- SHADER (с поддержкой фона/неба) ----------
+local ShaderPresets = {
+    Natural    = {Brightness = 0,    Contrast = 0,    Saturation = 0,    Tint = Color3.fromRGB(255,255,255), Bloom = 0,    Sky = nil},
+    Vivid      = {Brightness = 0.05, Contrast = 0.15, Saturation = 0.35, Tint = Color3.fromRGB(255,240,230), Bloom = 0.4,  Sky = nil},
+    Cold       = {Brightness = -0.02,Contrast = 0.1,  Saturation = -0.1, Tint = Color3.fromRGB(180,210,255), Bloom = 0.2,  Sky = nil},
+    Warm       = {Brightness = 0.03, Contrast = 0.08, Saturation = 0.15, Tint = Color3.fromRGB(255,200,150), Bloom = 0.3,  Sky = nil},
+    Noir       = {Brightness = -0.05,Contrast = 0.4,  Saturation = -1,   Tint = Color3.fromRGB(255,255,255), Bloom = 0.1,  Sky = nil},
+    Neon       = {Brightness = 0.08, Contrast = 0.2,  Saturation = 0.5,  Tint = Color3.fromRGB(200,255,255), Bloom = 0.8,  Sky = nil},
+    Night      = {Brightness = -0.15,Contrast = 0.2,  Saturation = 0.1,  Tint = Color3.fromRGB(180,200,255), Bloom = 0.5,
+                  Sky = {SkyboxBk="rbxassetid://159454299", SkyboxDn="rbxassetid://159454296", SkyboxFt="rbxassetid://159454293",
+                         SkyboxLf="rbxassetid://159454286", SkyboxRt="rbxassetid://159454300", SkyboxUp="rbxassetid://159454288",
+                         StarCount=3000, MoonAngularSize=25, SunAngularSize=0}},
+    DarkNight  = {Brightness = -0.25,Contrast = 0.3,  Saturation = 0.05, Tint = Color3.fromRGB(150,170,220), Bloom = 0.7,
+                  Sky = {SkyboxBk="rbxassetid://159454299", SkyboxDn="rbxassetid://159454296", SkyboxFt="rbxassetid://159454293",
+                         SkyboxLf="rbxassetid://159454286", SkyboxRt="rbxassetid://159454300", SkyboxUp="rbxassetid://159454288",
+                         StarCount=5000, MoonAngularSize=30, SunAngularSize=0}},
+    PurpleNight= {Brightness = -0.1, Contrast = 0.25, Saturation = 0.3,  Tint = Color3.fromRGB(200,160,255), Bloom = 0.6,
+                  Sky = {SkyboxBk="rbxassetid://159454299", SkyboxDn="rbxassetid://159454296", SkyboxFt="rbxassetid://159454293",
+                         SkyboxLf="rbxassetid://159454286", SkyboxRt="rbxassetid://159454300", SkyboxUp="rbxassetid://159454288",
+                         StarCount=4000, MoonAngularSize=28, SunAngularSize=0}},
+    Sunset     = {Brightness = 0.05, Contrast = 0.15, Saturation = 0.4,  Tint = Color3.fromRGB(255,200,140), Bloom = 0.5,
+                  Sky = {SkyboxBk="rbxassetid://159454263", SkyboxDn="rbxassetid://159454265", SkyboxFt="rbxassetid://159454267",
+                         SkyboxLf="rbxassetid://159454254", SkyboxRt="rbxassetid://159454256", SkyboxUp="rbxassetid://159454258",
+                         StarCount=1000, MoonAngularSize=0, SunAngularSize=25}},
+}
+
+local function removeShader()
+    if VisualState.shader.instance then VisualState.shader.instance:Destroy(); VisualState.shader.instance = nil end
+    if VisualState.shader.bloom then VisualState.shader.bloom:Destroy(); VisualState.shader.bloom = nil end
+    if VisualState.shader.sky then VisualState.shader.sky:Destroy(); VisualState.shader.sky = nil end
+    if VisualState.shader.stars then VisualState.shader.stars:Destroy(); VisualState.shader.stars = nil end
+    if VisualState.shader.starsConn then VisualState.shader.starsConn:Disconnect(); VisualState.shader.starsConn = nil end
+end
+
+local function applyShader()
+    removeShader()
+    if not Config.Shader then return end
+    local preset = ShaderPresets[Config.ShaderPreset] or ShaderPresets.Natural
+
+    local cc = Instance.new("ColorCorrectionEffect")
+    cc.Name = "ses_get3_Shader"
+    cc.Brightness = preset.Brightness
+    cc.Contrast = preset.Contrast
+    cc.Saturation = preset.Saturation
+    cc.TintColor = preset.Tint
+    cc.Parent = Lighting
+    VisualState.shader.instance = cc
+
+    local bloom = Instance.new("BloomEffect")
+    bloom.Name = "ses_get3_Bloom"
+    bloom.Intensity = preset.Bloom
+    bloom.Size = 24
+    bloom.Threshold = 1
+    bloom.Parent = Lighting
+    VisualState.shader.bloom = bloom
+
+    if preset.Sky then
+        local sky = Instance.new("Sky")
+        sky.Name = "ses_get3_Sky"
+        sky.SkyboxBk = preset.Sky.SkyboxBk
+        sky.SkyboxDn = preset.Sky.SkyboxDn
+        sky.SkyboxFt = preset.Sky.SkyboxFt
+        sky.SkyboxLf = preset.Sky.SkyboxLf
+        sky.SkyboxRt = preset.Sky.SkyboxRt
+        sky.SkyboxUp = preset.Sky.SkyboxUp
+        sky.StarCount = preset.Sky.StarCount or 3000
+        sky.MoonAngularSize = preset.Sky.MoonAngularSize or 20
+        sky.SunAngularSize = preset.Sky.SunAngularSize or 0
+        sky.Parent = Lighting
+        VisualState.shader.sky = sky
+
+        local cam = workspace.CurrentCamera
+        if cam then
+            local starsPart = Instance.new("Part")
+            starsPart.Name = "ses_get3_StarsEmitter"
+            starsPart.Size = Vector3.new(1, 1, 1)
+            starsPart.Transparency = 1
+            starsPart.CanCollide = false
+            starsPart.Anchored = true
+            starsPart.CastShadow = false
+            starsPart.Parent = workspace
+
+            local pe = Instance.new("ParticleEmitter")
+            pe.Name = "Stars"
+            pe.Texture = "rbxassetid://243660364"
+            pe.Rate = 30
+            pe.Lifetime = NumberRange.new(3, 6)
+            pe.Speed = NumberRange.new(0, 0)
+            pe.SpreadAngle = Vector2.new(180, 180)
+            pe.Size = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0),
+                NumberSequenceKeypoint.new(0.5, 0.5),
+                NumberSequenceKeypoint.new(1, 0),
+            })
+            pe.Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1),
+                NumberSequenceKeypoint.new(0.5, 0),
+                NumberSequenceKeypoint.new(1, 1),
+            })
+            pe.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
+            pe.LightEmission = 1
+            pe.LightInfluence = 0
+            pe.Rotation = NumberRange.new(0, 360)
+            pe.RotSpeed = NumberRange.new(-50, 50)
+            pe.EmissionDirection = Enum.NormalId.Top
+            pe.Parent = starsPart
+            VisualState.shader.stars = starsPart
+
+            VisualState.shader.starsConn = RunService.RenderStepped:Connect(function()
+                if not Config.Shader or isUnloaded() then return end
+                if starsPart and starsPart.Parent and cam then
+                    starsPart.CFrame = CFrame.new(cam.CFrame.Position) * CFrame.Angles(0, tick() * 0.02, 0)
+                end
+            end)
+        end
+    end
+end
+
+-- ---------- AURA ----------
+local AuraStyles = {
+    Energy = {Color = Color3.fromRGB(105,205,255), Material = Enum.Material.Neon},
+    Fire   = {Color = Color3.fromRGB(255,120,40),  Material = Enum.Material.Neon},
+    Ice    = {Color = Color3.fromRGB(160,220,255), Material = Enum.Material.ForceField},
+    Shadow = {Color = Color3.fromRGB(80,40,140),   Material = Enum.Material.Neon},
+    Gold   = {Color = Color3.fromRGB(255,215,0),   Material = Enum.Material.Neon},
+    Toxic  = {Color = Color3.fromRGB(120,255,80),  Material = Enum.Material.Neon},
+    Rainbow= {Color = Color3.fromRGB(255,255,255), Material = Enum.Material.Neon, Rainbow = true},
+}
+
+local function removeAura()
+    if VisualState.aura.conn then VisualState.aura.conn:Disconnect(); VisualState.aura.conn = nil end
+    if VisualState.aura.model then VisualState.aura.model:Destroy(); VisualState.aura.model = nil end
+    VisualState.aura.parts = {}
+    VisualState.aura.ring = nil
+    VisualState.aura.light = nil
+end
+
+local function buildAura()
+    removeAura()
+    if not Config.AuraEnabled then return end
+
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local style = AuraStyles[Config.AuraStyle] or AuraStyles.Energy
+    local custom = Config.AuraCustomColor or {105,205,255}
+    local color = Color3.fromRGB(custom[1], custom[2], custom[3])
+    if Config.AuraStyle ~= "Custom" and not style.Rainbow then color = style.Color end
+
+    local folder = Instance.new("Folder")
+    folder.Name = "ses_get3_Aura"
+    folder.Parent = char
+
+    local radius = Config.AuraSize / 100 * 3.5
+    local baseCount = 14
+
+    local parts = {}
+    for i = 1, baseCount do
+        local part = Instance.new("Part")
+        part.Name = "AuraP" .. i
+        part.Shape = Enum.PartType.Ball
+        part.Size = Vector3.new(0.35, 0.35, 0.35)
+        part.Material = style.Material
+        part.Color = color
+        part.Transparency = 0.15
+        part.CanCollide = false
+        part.Massless = true
+        part.Anchored = true
+        part.CastShadow = false
+        part.Parent = folder
+
+        local light = Instance.new("PointLight")
+        light.Color = color
+        light.Brightness = 1.5
+        light.Range = 6
+        light.Parent = part
+
+        table.insert(parts, {
+            part = part,
+            angle = (i / baseCount) * math.pi * 2,
+            heightPhase = (i / baseCount) * math.pi * 2,
+            speed = 1 + (i % 3) * 0.15,
+            yOff = (i % 5 - 2) * 0.25,
+        })
+    end
+
+    local ring = Instance.new("Part")
+    ring.Name = "AuraRing"
+    ring.Shape = Enum.PartType.Cylinder
+    ring.Size = Vector3.new(0.15, radius * 1.5, radius * 1.5)
+    ring.Material = style.Material
+    ring.Color = color
+    ring.Transparency = 0.55
+    ring.CanCollide = false
+    ring.Massless = true
+    ring.Anchored = true
+    ring.CastShadow = false
+    ring.Parent = folder
+
+    local ringLight = Instance.new("PointLight")
+    ringLight.Color = color
+    ringLight.Brightness = Config.AuraIntensity / 15
+    ringLight.Range = radius * 3
+    ringLight.Parent = ring
+
+    VisualState.aura.model = folder
+    VisualState.aura.parts = parts
+    VisualState.aura.ring = ring
+    VisualState.aura.light = ringLight
+
+    local t = 0
+    VisualState.aura.conn = RunService.Heartbeat:Connect(function(dt)
+        if not Config.AuraEnabled or isUnloaded() then return end
+        local c = LocalPlayer.Character
+        local r = c and c:FindFirstChild("HumanoidRootPart")
+        if not (c and r) then return end
+        t = t + dt
+
+        local useColor = color
+        if style.Rainbow then
+            useColor = Color3.fromHSV((t * 0.3) % 1, 0.8, 1)
+        end
+
+        for i, data in ipairs(parts) do
+            if data.part.Parent then
+                local a = data.angle + t * data.speed * (Config.AuraIntensity / 55)
+                local h = data.heightPhase + t * data.speed * 1.2
+                local rad = radius * (1 + math.sin(h) * 0.15)
+                local y = math.sin(h) * 1.2 + data.yOff
+                local pos = r.Position + Vector3.new(math.cos(a) * rad, y, math.sin(a) * rad)
+                data.part.CFrame = CFrame.new(pos)
+                data.part.Color = useColor
+                local l = data.part:FindFirstChildOfClass("PointLight")
+                if l then l.Color = useColor end
+                local sc = 0.35 * (1 + math.sin(t * 4 + i) * 0.3)
+                data.part.Size = Vector3.new(sc, sc, sc)
+            end
+        end
+
+        if ring.Parent then
+            local yBob = math.sin(t * 2) * 0.15
+            ring.CFrame = CFrame.new(r.Position + Vector3.new(0, yBob, 0)) * CFrame.Angles(0, t * 0.5, math.rad(90))
+            ring.Color = useColor
+            if ringLight then
+                ringLight.Color = useColor
+                ringLight.Brightness = (Config.AuraIntensity / 15) * (1 + math.sin(t * 3) * 0.25)
+            end
+        end
+    end)
+end
+
+-- ---------- ORBS ----------
+local OrbsStyles = {
+    Invoker  = Color3.fromRGB(255,120,40),
+    Void     = Color3.fromRGB(140,60,255),
+    Holy     = Color3.fromRGB(255,240,180),
+    Toxic    = Color3.fromRGB(120,255,80),
+    Ice      = Color3.fromRGB(120,200,255),
+    Rainbow  = "rainbow",
+}
+
+local function removeOrbs()
+    if VisualState.orbs.conn then VisualState.orbs.conn:Disconnect(); VisualState.orbs.conn = nil end
+    if VisualState.orbs.model then VisualState.orbs.model:Destroy(); VisualState.orbs.model = nil end
+    VisualState.orbs.parts = {}
+end
+
+local function buildOrbs()
+    removeOrbs()
+    if not Config.OrbsEnabled then return end
+
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+
+    local custom = Config.OrbsCustomColor or {120,200,255}
+    local baseColor = Color3.fromRGB(custom[1], custom[2], custom[3])
+    local style = Config.OrbsStyle
+    local rainbow = (style == "Rainbow") or (OrbsStyles[style] == "rainbow")
+    if OrbsStyles[style] and not rainbow then baseColor = OrbsStyles[style] end
+
+    local folder = Instance.new("Folder")
+    folder.Name = "ses_get3_Orbs"
+    folder.Parent = char
+
+    local parts = {}
+    for i = 1, Config.OrbsCount do
+        local orb = Instance.new("Part")
+        orb.Shape = Enum.PartType.Ball
+        orb.Size = Vector3.new(0.9, 0.9, 0.9)
+        orb.Material = Enum.Material.Neon
+        orb.Color = baseColor
+        orb.Transparency = 0.05
+        orb.CanCollide = false
+        orb.Massless = true
+        orb.Anchored = true
+        orb.CastShadow = false
+        orb.Parent = folder
+
+        local light = Instance.new("PointLight")
+        light.Color = baseColor
+        light.Brightness = 2.5
+        light.Range = 9
+        light.Parent = orb
+
+        local att0 = Instance.new("Attachment")
+        att0.Position = Vector3.new(0, 0, 0)
+        att0.Parent = orb
+        local att1 = Instance.new("Attachment")
+        att1.Position = Vector3.new(0, 0, -0.6)
+        att1.Parent = orb
+
+        local trail = Instance.new("Trail")
+        trail.Attachment0 = att0
+        trail.Attachment1 = att1
+        trail.Lifetime = 0.35
+        trail.MinLength = 0
+        trail.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        trail.Color = ColorSequence.new(baseColor)
+        trail.LightEmission = 1
+        trail.LightInfluence = 0
+        trail.WidthScale = NumberSequence.new(1, 0)
+        trail.Parent = orb
+
+        table.insert(parts, {part = orb, trail = trail, light = light})
+    end
+
+    VisualState.orbs.model = folder
+    VisualState.orbs.parts = parts
+
+    local t = 0
+    VisualState.orbs.conn = RunService.Heartbeat:Connect(function(dt)
+        if not Config.OrbsEnabled or isUnloaded() then return end
+        local c = LocalPlayer.Character
+        local r = c and c:FindFirstChild("HumanoidRootPart")
+        if not (c and r) then return end
+        t = t + dt * (Config.OrbsSpeed / 100)
+        local radius = (Config.OrbsRadius / 100) * 4
+        for i, data in ipairs(parts) do
+            if data.part.Parent then
+                local angle = t + (i / #parts) * math.pi * 2
+                local y = math.sin(t * 1.5 + i) * 1.2 + 2
+                local pos = r.Position + Vector3.new(math.cos(angle) * radius, y, math.sin(angle) * radius)
+                data.part.CFrame = CFrame.new(pos)
+                if rainbow then
+                    local col = Color3.fromHSV(((t * 0.2) + i / #parts) % 1, 0.8, 1)
+                    data.part.Color = col
+                    data.light.Color = col
+                    data.trail.Color = ColorSequence.new(col)
+                end
+            end
+        end
+    end)
+end
+
+-- ---------- SKY WORMS ----------
+local function removeSkyWorms()
+    if VisualState.skyworms.conn then VisualState.skyworms.conn:Disconnect(); VisualState.skyworms.conn = nil end
+    if VisualState.skyworms.folder then VisualState.skyworms.folder:Destroy(); VisualState.skyworms.folder = nil end
+    VisualState.skyworms.parts = {}
+end
+
+local function buildSkyWorms()
+    removeSkyWorms()
+    if not Config.SkyWormsEnabled then return end
+
+    local folder = Instance.new("Folder")
+    folder.Name = "ses_get3_SkyWorms"
+    folder.Parent = workspace
+
+    local worms = {}
+    for i = 1, Config.SkyWormsCount do
+        local seg = Instance.new("Part")
+        seg.Size = Vector3.new(1.5, 1.5, 3)
+        seg.Material = Enum.Material.Neon
+        seg.Color = Color3.fromHSV((i / Config.SkyWormsCount), 0.8, 1)
+        seg.Transparency = 0.25
+        seg.CanCollide = false
+        seg.Anchored = true
+        seg.CastShadow = false
+        seg.Parent = folder
+        table.insert(worms, {
+            part = seg,
+            phase = math.random() * math.pi * 2,
+            radius = 80 + math.random() * 120,
+            height = 120 + math.random() * 150,
+            speed = (Config.SkyWormsSpeed / 100) * (0.5 + math.random()),
+        })
+    end
+
+    VisualState.skyworms.folder = folder
+    VisualState.skyworms.parts = worms
+
+    VisualState.skyworms.conn = RunService.Heartbeat:Connect(function()
+        if not Config.SkyWormsEnabled or isUnloaded() then return end
+        local cam = workspace.CurrentCamera
+        if not cam then return end
+        local center = cam.CFrame.Position
+        local t = tick()
+        for _, w in ipairs(worms) do
+            if w.part.Parent then
+                local angle = t * w.speed + w.phase
+                local pos = center + Vector3.new(
+                    math.cos(angle) * w.radius,
+                    w.height + math.sin(angle * 2) * 20,
+                    math.sin(angle) * w.radius
+                )
+                w.part.CFrame = CFrame.new(pos, center)
+            end
+        end
+    end)
+end
+
+-- ---------- AVATAR (Headless + Korblox) ----------
+local function clearAvatarConns()
+    for _, c in ipairs(VisualState.avatar.conns) do
+        if c then c:Disconnect() end
+    end
+    VisualState.avatar.conns = {}
+end
+
+local function applyHeadless(char, state)
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    if head then
+        head.Transparency = state and 1 or 0
+        head.LocalTransparencyModifier = state and 1 or 0
+        for _, d in ipairs(head:GetDescendants()) do
+            if d:IsA("Decal") or d:IsA("Texture") then
+                d.Transparency = state and 1 or 0
+            elseif d:IsA("SpecialMesh") then
+                d.Scale = state and Vector3.new(0, 0, 0) or Vector3.new(1, 1, 1)
+            elseif d:IsA("MeshPart") then
+                d.Transparency = state and 1 or 0
+            end
+        end
+    end
+    for _, acc in ipairs(char:GetChildren()) do
+        if acc:IsA("Accessory") then
+            local handle = acc:FindFirstChild("Handle")
+            if handle then
+                local attach = handle:FindFirstChildOfClass("Attachment")
+                if attach and (attach.Name:lower():find("hat") or attach.Name == "HatAttachment") then
+                    handle.Transparency = state and 1 or 0
+                end
+            end
+        end
+    end
+end
+
+local function applyKorblox(char, state)
+    if not char then return end
+    local parts = {}
+    for _, name in ipairs({"RightUpperLeg", "RightLowerLeg", "RightFoot"}) do
+        local p = char:FindFirstChild(name)
+        if p and p:IsA("BasePart") then table.insert(parts, p) end
+    end
+    for _, name in ipairs({"Right Leg", "Right Arm"}) do
+        local p = char:FindFirstChild(name)
+        if p and p:IsA("BasePart") then table.insert(parts, p) end
+    end
+
+    for _, p in ipairs(parts) do
+        if state then
+            if not p:GetAttribute("ses_origColor") then
+                p:SetAttribute("ses_origColor", p.Color)
+                p:SetAttribute("ses_origMaterial", p.Material)
+            end
+            p.Color = Color3.fromRGB(30, 30, 35)
+            p.Material = Enum.Material.Slate
+            p.Transparency = 0
+        else
+            local oc = p:GetAttribute("ses_origColor")
+            local om = p:GetAttribute("ses_origMaterial")
+            if oc then p.Color = oc end
+            if om then p.Material = om end
+        end
+    end
+end
+
+local function applyAvatarVisuals()
+    local char = LocalPlayer.Character
+    if not char then return end
+    applyHeadless(char, Config.AvatarHeadless)
+    applyKorblox(char, Config.AvatarKorblox)
+end
+
+local function monitorAvatar(char)
+    clearAvatarConns()
+    if not char then return end
+
+    task.spawn(function()
+        task.wait(0.5)
+        applyAvatarVisuals()
+    end)
+
+    table.insert(VisualState.avatar.conns, RunService.Heartbeat:Connect(function()
+        if isUnloaded() then return end
+        if LocalPlayer.Character ~= char then return end
+        if Config.AvatarHeadless then
+            local h = char:FindFirstChild("Head")
+            if h and h.Transparency < 1 then
+                h.Transparency = 1
+                h.LocalTransparencyModifier = 1
+            end
+        end
+    end))
+
+    table.insert(VisualState.avatar.conns, char.ChildAdded:Connect(function()
+        task.wait(0.05)
+        applyAvatarVisuals()
+    end))
+
+    table.insert(VisualState.avatar.conns, char.DescendantAdded:Connect(function(child)
+        if child:IsA("Decal") or child:IsA("SpecialMesh") or child:IsA("MeshPart") or child:IsA("Accessory") or child:IsA("BasePart") then
+            task.wait(0.05)
+            applyAvatarVisuals()
+        end
+    end))
+end
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.3)
+    monitorAvatar(char)
+end)
+if LocalPlayer.Character then
+    monitorAvatar(LocalPlayer.Character)
+end
+
+-- ---------- GUN SKIN ----------
+local GunSkinColors = {
+    Green  = Color3.fromRGB(0, 255, 100),
+    Red    = Color3.fromRGB(255, 60, 60),
+    Blue   = Color3.fromRGB(60, 140, 255),
+    Gold   = Color3.fromRGB(255, 215, 0),
+    Purple = Color3.fromRGB(160, 80, 255),
+    Pink   = Color3.fromRGB(255, 100, 200),
+    Black  = Color3.fromRGB(25, 25, 25),
+    White  = Color3.fromRGB(240, 240, 240),
+}
+
+local function restoreGunSkin(tool)
+    if not tool or not VisualState.gunskin.original then return end
+    for part, orig in pairs(VisualState.gunskin.original) do
+        if part and part.Parent then
+            part.Color = orig.Color
+            part.Material = orig.Material
+        end
+    end
+    VisualState.gunskin.original = nil
+end
+
+local function applyGunSkin(tool)
+    if not tool or not tool:IsA("Tool") or not Config.GunSkinEnabled then return end
+    local color = GunSkinColors[Config.GunSkinModel] or GunSkinColors.Green
+    for _, part in ipairs(tool:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if not VisualState.gunskin.original then VisualState.gunskin.original = {} end
+            if not VisualState.gunskin.original[part] then
+                VisualState.gunskin.original[part] = {Color = part.Color, Material = part.Material}
+            end
+            part.Color = color
+            part.Material = Enum.Material.Neon
+        end
+    end
+end
+
+local function setupGunSkinMonitor()
+    if VisualState.gunskin.conn then VisualState.gunskin.conn:Disconnect(); VisualState.gunskin.conn = nil end
+    if not Config.GunSkinEnabled then return end
+    local function tryTool(child)
+        if child.Name == "Gun" and child:IsA("Tool") then
+            task.wait(0.1)
+            applyGunSkin(child)
+        end
+    end
+    local c1 = LocalPlayer.CharacterAdded:Connect(function(char)
+        char.ChildAdded:Connect(tryTool)
+        local g = char:FindFirstChild("Gun")
+        if g then applyGunSkin(g) end
+    end)
+    local c2 = LocalPlayer.Backpack.ChildAdded:Connect(tryTool)
+    VisualState.gunskin.conn = c1
+    if LocalPlayer.Character then
+        local g = LocalPlayer.Character:FindFirstChild("Gun")
+        if g then applyGunSkin(g) end
+    end
+end
+
+-- ============ NEW ESP ============
 local espHighlights = {}
 local espEnabledState = Config.ESP
 
 local function applyNewESP(player)
     if player == LocalPlayer then return end
-
     local function setup(character)
         if espHighlights[player] then
             espHighlights[player]:Destroy()
             espHighlights[player] = nil
         end
         if not espEnabledState then return end
-
-        if Config.ESPTeamCheck and player.Team == LocalPlayer.Team then
-            return
-        end
-
+        if Config.ESPTeamCheck and player.Team == LocalPlayer.Team then return end
         local hl = Instance.new("Highlight")
         hl.Name = "ESP_Highlight"
         hl.Adornee = character
@@ -345,13 +938,9 @@ local function applyNewESP(player)
         hl.OutlineTransparency = Config.ESPOutlineTransparency or 0
         hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
         hl.Parent = character
-
         espHighlights[player] = hl
     end
-
-    if player.Character then
-        setup(player.Character)
-    end
+    if player.Character then setup(player.Character) end
     player.CharacterAdded:Connect(setup)
 end
 
@@ -490,6 +1079,77 @@ local function getGun()
     return nil
 end
 local function isLocalAlive() return LocalPlayer:GetAttribute("Alive") == true end
+
+-- ============ SCAM MURDERER ============
+local scamMurdererConn = nil
+local scamMurdererForced = false
+
+local function stopScamMurderer()
+    if scamMurdererConn then
+        scamMurdererConn:Disconnect()
+        scamMurdererConn = nil
+    end
+    if scamMurdererForced then
+        Config.Invisible = false
+        scamMurdererForced = false
+        updateInvisible()
+    end
+end
+
+local function startScamMurderer()
+    if scamMurdererConn then return end
+    if not IS_MM2 then return end
+
+    scamMurdererConn = RunService.Heartbeat:Connect(function()
+        if isUnloaded() then return end
+        if not Config.ScamMurderer then return end
+
+        local murderer = getMurdererPlayer()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+
+        if not murderer or not murderer.Character or not root then
+            if scamMurdererForced and Config.ScamMurdererAutoOff then
+                Config.Invisible = false
+                scamMurdererForced = false
+                updateInvisible()
+            end
+            return
+        end
+
+        local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
+        if not mRoot then return end
+
+        local dist = (root.Position - mRoot.Position).Magnitude
+        local range = Config.ScamMurdererRange or 40
+
+        if dist <= range then
+            if not Config.Invisible then
+                Config.Invisible = true
+                scamMurdererForced = true
+                updateInvisible()
+            end
+        else
+            if scamMurdererForced and Config.ScamMurdererAutoOff then
+                Config.Invisible = false
+                scamMurdererForced = false
+                updateInvisible()
+            end
+        end
+    end)
+end
+
+if Config.ScamMurderer and IS_MM2 then
+    task.spawn(startScamMurderer)
+end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    if Config.ScamMurderer and IS_MM2 then
+        if scamMurdererConn then scamMurdererConn:Disconnect(); scamMurdererConn = nil end
+        task.spawn(startScamMurderer)
+    end
+end)
 
 -- ============ ФАРМ ============
 local farmingActive = false
@@ -890,7 +1550,7 @@ local function StopFling()
     end
 end
 
--- ============ СТРЕЛЬБА / УБИЙСТВО ============
+-- ============ СТРЕЛЬБА ============
 local magicBulletToolConn = nil
 local disabledGunClients = {}
 local gunMonitorConns = {}
@@ -1044,7 +1704,7 @@ if IS_MM2 then
     end)
 end
 
--- ============ УБИЙСТВО ВСЕХ (полный мешок) ============
+-- ============ KILL ALL ============
 if IS_MM2 then
     task.spawn(function()
         while not isUnloaded() do
@@ -1094,7 +1754,7 @@ if IS_MM2 then
     end)
 end
 
--- ============ АТАКА ПОСЛЕ СБОРА ============
+-- ============ ATTACK AFTER FARM ============
 local autoAttackInnocentBusy = false
 local function findGunDrop()
     local map = findMap()
@@ -1347,7 +2007,7 @@ Players.PlayerAdded:Connect(function(p)
     end
 end)
 
--- ============ ESP (MM2 только — старый) ============
+-- ============ MM2 ESP ============
 if IS_MM2 then
     local function setupESP(player)
         if player == LocalPlayer then return end
@@ -1424,19 +2084,6 @@ if IS_MM2 then
                             lbl.TextColor3 = Color3.fromRGB(50, 205, 50)
                             hl.FillTransparency = 0.5
                         end
-                    else
-                        local hum = character:FindFirstChildOfClass("Humanoid")
-                        local hp = hum and math.floor(hum.Health) or 0
-                        local maxHp = hum and math.floor(hum.MaxHealth) or 100
-                        local distance = 0
-                        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("HumanoidRootPart") then
-                            distance = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - character.HumanoidRootPart.Position).Magnitude)
-                        end
-                        lbl.Text = displayName .. "\n" .. hp .. "/" .. maxHp .. " HP  |  " .. distance .. "m"
-                        lbl.TextColor3 = espColor
-                        hl.FillColor = espColor
-                        hl.FillTransparency = 0.5
-                        hl.OutlineTransparency = 0.2
                     end
                     task.wait(0.05)
                 end
@@ -1449,7 +2096,7 @@ if IS_MM2 then
     Players.PlayerAdded:Connect(setupESP)
 end
 
--- ============ ESP GUNDROP ============
+-- ============ GUNDROP ESP ============
 if IS_MM2 then
     local gunDropHighlight, gunDropBillboard = nil, nil
     local function clearGunDropESP()
@@ -1641,7 +2288,7 @@ local function ApplyAnimationSpeed()
     end
 end
 
--- ============ ТАБЛИЦЫ АНИМАЦИЙ ============
+-- ============ ТАБЛИЦЫ ============
 local Emotes = {
     ['Fashion'] = 3333331310, ["Baby Dance"] = 4265725525, ["Cha-Cha"] = 6862001787,
     ['Monkey'] = 3333499508, ['Shuffle'] = 4349242221, ["Top Rock"] = 3361276673,
@@ -1706,7 +2353,7 @@ local Animations = {
     Mocap = {Idle=913367814, Idle2=913373430, Idle3=913367814, Walk=913402848, Run=913376220, Jump=913370268, Climb=913362637, Fall=913365531, Swim=913384386, SwimIdle=913389285},
 }
 
--- ============ РАЗБОР BUNDLE ============
+-- ============ BUNDLE ============
 local function resolveBundleMappings(bundledItems)
     local mappings = {}
     if not bundledItems then return mappings end
@@ -2286,24 +2933,24 @@ local function buildMM2Gui()
         return l
     end
 
-    -- ВКЛАДКИ
+    -- TABS
     local MainBtn     = createNavBtn("🏠", "Главная", 1);   local MainPage     = createPage(1)
     local BattleBtn   = createNavBtn("⚔️", "Бой", 2);       local BattlePage   = createPage(2)
     local FarmBtn     = createNavBtn("🛒", "Фарм", 3);      local FarmPage     = createPage(3)
     local FlingBtn    = createNavBtn("⚡", "Флинг", 4);     local FlingPage    = createPage(4)
-    local VoteBtn     = createNavBtn("🗳️", "Vote Dupe", 5); local VotePage     = createPage(5)
-    local AnimBtn     = createNavBtn("🎬", "Анимации", 6);  local AnimPage     = createPage(6)
+    local AnimBtn     = createNavBtn("🎬", "Анимации", 5);  local AnimPage     = createPage(5)
+    local VisBtn      = createNavBtn("🎨", "Визуал", 6);    local VisPage      = createPage(6)
     local FeaturesBtn = createNavBtn("🧩", "Фишки", 7);     local FeaturesPage = createPage(7)
     local SettingsBtn = createNavBtn("⚙️", "Настройки", 8); local SettingsPage = createPage(8)
 
-    pages = {MainPage, BattlePage, FarmPage, FlingPage, VotePage, AnimPage, FeaturesPage, SettingsPage}
-    navButtons = {MainBtn, BattleBtn, FarmBtn, FlingBtn, VoteBtn, AnimBtn, FeaturesBtn, SettingsBtn}
+    pages = {MainPage, BattlePage, FarmPage, FlingPage, AnimPage, VisPage, FeaturesPage, SettingsPage}
+    navButtons = {MainBtn, BattleBtn, FarmBtn, FlingBtn, AnimBtn, VisBtn, FeaturesBtn, SettingsBtn}
     for i, b in ipairs(navButtons) do
         b.MouseButton1Click:Connect(function() selectPage(i) end)
     end
     selectPage(1)
 
-    -- ГЛАВНАЯ
+    -- MAIN
     createPageHeader(MainPage, "Главная", "Быстрый доступ")
     createSectionLabel(MainPage, "ОСНОВНОЕ")
     createToggle(MainPage, "ESP", "Подсветка ролей", Config.ESP, function(v) Config.ESP = v; saveConfig() end)
@@ -2339,7 +2986,7 @@ local function buildMM2Gui()
         end
     end)
 
-    -- БОЙ
+    -- BATTLE
     createPageHeader(BattlePage, "Бой", "Оружие и автоатака")
     createSectionLabel(BattlePage, "СТРЕЛЬБА")
     createToggle(BattlePage, "Авто-стрельба", "Стрельба в маньяка", Config.AutoShoot, function(v) Config.AutoShoot = v; saveConfig() end)
@@ -2347,12 +2994,37 @@ local function buildMM2Gui()
         Config.MagicBullet = v; saveConfig()
         if v then enableMagicBullet() else disableMagicBullet() end
     end)
+    createSectionLabel(BattlePage, "СКАМ МАРДЕР")
+    createToggle(BattlePage, "Скам Мардер", "Авто-Invisible при приближении маньяка", Config.ScamMurderer, function(v)
+        Config.ScamMurderer = v
+        saveConfig()
+        if v then
+            startScamMurderer()
+        else
+            stopScamMurderer()
+        end
+    end)
+    local scamRangeInput = createInput(BattlePage, "Дистанция срабатывания (стадов)")
+    scamRangeInput.Text = tostring(Config.ScamMurdererRange)
+    scamRangeInput.FocusLost:Connect(function()
+        local n = tonumber(scamRangeInput.Text)
+        if n and n >= 5 and n <= 500 then
+            Config.ScamMurdererRange = n
+            saveConfig()
+        else
+            scamRangeInput.Text = tostring(Config.ScamMurdererRange)
+        end
+    end)
+    createToggle(BattlePage, "Авто-выкл Invisible", "Выключать, когда маньяк ушёл", Config.ScamMurdererAutoOff, function(v)
+        Config.ScamMurdererAutoOff = v
+        saveConfig()
+    end)
     createSectionLabel(BattlePage, "АВТО-УБИЙСТВО")
     createToggle(BattlePage, "Убийство всех", "Только для маньяка", Config.AutoKill, function(v) Config.AutoKill = v; saveConfig() end)
     createSectionLabel(BattlePage, "ПОДБОР")
     createToggle(BattlePage, "Авто-подбор пистолета", "Подбирать GunDrop", Config.AutoGrabGun, function(v) Config.AutoGrabGun = v; saveConfig() end)
 
-    -- ФАРМ
+    -- FARM
     createPageHeader(FarmPage, "Автофарм", "Только при Сборе монет")
     createSectionLabel(FarmPage, "ГЛАВНЫЙ ПЕРЕКЛЮЧАТЕЛЬ")
     createToggle(FarmPage, "Сбор монет", "Автосбор всех монет", Config.FarmCoins, function(v)
@@ -2388,7 +3060,7 @@ local function buildMM2Gui()
         end
     end)
 
-    -- ФЛИНГ
+    -- FLING
     createPageHeader(FlingPage, "Флинг", "Отправка игроков в полёт")
     createSectionLabel(FlingPage, "ПО РОЛИ")
     createActionGrid(FlingPage, {
@@ -2408,359 +3080,7 @@ local function buildMM2Gui()
     end)
     createActionBtn(FlingPage, "⛔ Остановить", Color3.fromRGB(150, 50, 50), StopFling)
 
-    -- ============ VOTE DUPE ============
-    local voteActivePad
-    local voteLoopThread
-    local voteVotesCast = 0
-    local voteCards = {}
-
-    local function getVoteLobby()
-        return workspace:FindFirstChild("RegularLobby") or workspace:FindFirstChild("Lobby")
-    end
-    local function getVotePad(i)
-        local lobby = getVoteLobby()
-        if not lobby then return nil end
-        return lobby:FindFirstChild("VotePad" .. i) or lobby:FindFirstChild("VotePad" .. i, true)
-    end
-    local function getVotePadCF(pad)
-        if not pad then return nil end
-        if pad:IsA("BasePart") then return pad.CFrame end
-        if pad:IsA("Model") then return pad:GetPivot() end
-        local part = pad:FindFirstChildWhichIsA("BasePart", true)
-        return part and part.CFrame
-    end
-
-    local voteGuisByAdornee = {}
-    local function scanVoteGuis()
-        table.clear(voteGuisByAdornee)
-        local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-        if not playerGui then return end
-        for _, g in ipairs(playerGui:GetDescendants()) do
-            if (g:IsA("SurfaceGui") or g:IsA("BillboardGui")) and g.Adornee then
-                local list = voteGuisByAdornee[g.Adornee] or {}
-                voteGuisByAdornee[g.Adornee] = list
-                table.insert(list, g)
-            end
-        end
-    end
-    local function getVotePadGuis(pad)
-        local out = {}
-        for adornee, list in pairs(voteGuisByAdornee) do
-            if adornee == pad or adornee:IsDescendantOf(pad) then
-                for _, g in ipairs(list) do table.insert(out, g) end
-            end
-        end
-        local voteInfo = pad:FindFirstChild("VoteInfoGui", true)
-        if voteInfo then table.insert(out, voteInfo) end
-        return out
-    end
-    local function readVotePad(pad)
-        if not pad then return nil, nil end
-        local map, votes
-        for _, g in ipairs(getVotePadGuis(pad)) do
-            if g:IsA("LayerCollector") and not g.Enabled then continue end
-            local box = g:FindFirstChild("Container", true) or g
-            local function hex(name)
-                local o = box:FindFirstChild(name, true)
-                if o and (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Text ~= "" then
-                    return o.Text
-                end
-            end
-            map = map or hex("MapName")
-            local v = hex("Votes")
-            if v and (not votes or (tonumber(v:match("%d+")) or 0) > (tonumber(votes:match("%d+")) or 0)) then
-                votes = v
-            end
-        end
-        return map, votes
-    end
-    local function findVotePadImage(pad)
-        if not pad then return nil end
-        local best, bestScore = nil, 0
-        for _, d in ipairs(pad:GetDescendants()) do
-            local img, name = nil, d.Name:lower()
-            if d:IsA("ImageLabel") or d:IsA("ImageButton") then
-                img = d.Image
-                if img and img ~= "" and d.ImageTransparency < 0.95 then
-                    local score = (name:find("map") or name:find("thumb") or name:find("preview")) and 3
-                        or ((name:find("image") or name:find("icon") or name:find("picture")) and 2 or 1)
-                    if score > bestScore then best, bestScore = img, score end
-                end
-            elseif d:IsA("Decal") or d:IsA("Texture") then
-                img = d.Texture
-                if img and img ~= "" then
-                    local score = (name:find("map") or name:find("thumb")) and 3 or 1
-                    if score > bestScore then best, bestScore = img, score end
-                end
-            end
-        end
-        return best
-    end
-
-    createPageHeader(VotePage, "Vote Dupe Map", "Зацикливание голосования за карту")
-    createSectionLabel(VotePage, "ВЫБОР КАРТЫ")
-
-    local voteGrid = Instance.new("Frame")
-    voteGrid.Size = UDim2.new(1, 0, 0, 0)
-    voteGrid.AutomaticSize = Enum.AutomaticSize.Y
-    voteGrid.BackgroundTransparency = 1
-    voteGrid.Parent = VotePage
-    local voteGridLayout = Instance.new("UIGridLayout")
-    voteGridLayout.CellSize = UDim2.new(1, 0, 0, 76)
-    voteGridLayout.CellPadding = UDim2.new(0, 0, 0, 8)
-    voteGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    voteGridLayout.Parent = voteGrid
-
-    for i = 1, 3 do
-        local card = Instance.new("TextButton")
-        card.Size = UDim2.new(1, 0, 1, 0)
-        card.BackgroundColor3 = COL.card
-        card.Text = ""
-        card.BorderSizePixel = 0
-        card.LayoutOrder = i
-        card.AutoButtonColor = false
-        card.ClipsDescendants = true
-        card.Parent = voteGrid
-        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
-        local cardStroke = Instance.new("UIStroke", card)
-        cardStroke.Color = COL.border
-        cardStroke.Thickness = 1
-
-        local thumb = Instance.new("Frame")
-        thumb.Size = UDim2.new(0, 76, 0, 76)
-        thumb.BackgroundColor3 = COL.card
-        thumb.ClipsDescendants = true
-        thumb.ZIndex = 2
-        thumb.Parent = card
-        Instance.new("UICorner", thumb).CornerRadius = UDim.new(0, 10)
-
-        local ph = Instance.new("TextLabel")
-        ph.Text = "?"
-        ph.Font = Enum.Font.GothamBlack
-        ph.TextSize = 22
-        ph.TextColor3 = COL.textDim
-        ph.BackgroundTransparency = 1
-        ph.Size = UDim2.fromScale(1, 1)
-        ph.ZIndex = 3
-        ph.Parent = thumb
-
-        local img = Instance.new("ImageLabel")
-        img.Size = UDim2.fromScale(1, 1)
-        img.BackgroundTransparency = 1
-        img.ScaleType = Enum.ScaleType.Crop
-        img.ImageColor3 = Color3.fromRGB(220, 220, 220)
-        img.ImageTransparency = 1
-        img.ZIndex = 4
-        img.Parent = thumb
-        Instance.new("UICorner", img).CornerRadius = UDim.new(0, 10)
-
-        local nameLbl = Instance.new("TextLabel")
-        nameLbl.Size = UDim2.new(1, -90, 0, 22)
-        nameLbl.Position = UDim2.new(0, 86, 0, 10)
-        nameLbl.BackgroundTransparency = 1
-        nameLbl.Text = "LOADING..."
-        nameLbl.TextColor3 = COL.text
-        nameLbl.Font = Enum.Font.GothamBold
-        nameLbl.TextSize = 14
-        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-        nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-        nameLbl.ZIndex = 3
-        nameLbl.Parent = card
-
-        local votesLbl = Instance.new("TextLabel")
-        votesLbl.Size = UDim2.new(1, -90, 0, 16)
-        votesLbl.Position = UDim2.new(0, 86, 0, 34)
-        votesLbl.BackgroundTransparency = 1
-        votesLbl.Text = "votes —"
-        votesLbl.TextColor3 = COL.textDim
-        votesLbl.Font = Enum.Font.Gotham
-        votesLbl.TextSize = 12
-        votesLbl.TextXAlignment = Enum.TextXAlignment.Left
-        votesLbl.ZIndex = 3
-        votesLbl.Parent = card
-
-        local statusLbl = Instance.new("TextLabel")
-        statusLbl.Size = UDim2.new(1, -90, 0, 14)
-        statusLbl.Position = UDim2.new(0, 86, 0, 54)
-        statusLbl.BackgroundTransparency = 1
-        statusLbl.Text = "idle"
-        statusLbl.TextColor3 = COL.textDim
-        statusLbl.Font = Enum.Font.GothamBold
-        statusLbl.TextSize = 11
-        statusLbl.TextXAlignment = Enum.TextXAlignment.Left
-        statusLbl.ZIndex = 3
-        statusLbl.Parent = card
-
-        voteCards[i] = {
-            card = card, stroke = cardStroke, thumb = thumb, img = img, ph = ph,
-            name = nameLbl, votes = votesLbl, status = statusLbl, image = nil, map = nil,
-        }
-
-        card.MouseEnter:Connect(function()
-            TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.cardHover}):Play()
-        end)
-        card.MouseLeave:Connect(function()
-            TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.card}):Play()
-        end)
-    end
-
-    local function relayoutVoteCards()
-        for i, c in ipairs(voteCards) do
-            local on = voteActivePad == i
-            TweenService:Create(c.stroke, TweenInfo.new(0.2), {
-                Color = on and COL.accent or COL.border,
-                Thickness = on and 1.5 or 1,
-            }):Play()
-            c.status.TextColor3 = on and COL.accent or COL.textDim
-            c.status.Text = on and ("voting " .. voteVotesCast) or "idle"
-        end
-    end
-
-    local function stopVoteLoop(silent)
-        if voteLoopThread then pcall(task.cancel, voteLoopThread); voteLoopThread = nil end
-        voteActivePad = nil
-        relayoutVoteCards()
-    end
-    local function votePadVotes(i)
-        local pad = getVotePad(i)
-        if not pad then return false end
-        local map, votes = readVotePad(pad)
-        if not (map and votes) then return false end
-        return true, tonumber(votes:match("%d+"))
-    end
-    local function startVoteLoop(i)
-        stopVoteLoop(true)
-        voteActivePad = i
-        voteVotesCast = 0
-        relayoutVoteCards()
-        voteLoopThread = task.spawn(function()
-            local best, stale = nil, 0
-            while voteActivePad == i do
-                scanVoteGuis()
-                local active, count = votePadVotes(i)
-                if not active then stopVoteLoop(true); return end
-                best = best or count
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                local target = getVotePadCF(getVotePad(i))
-                if hum and hum.Health > 0 and root and target then
-                    root.CFrame = target + Vector3.new(0, 2.5, 0)
-                    local before = count
-                    local waitStart = os.clock()
-                    repeat
-                        RunService.Heartbeat:Wait()
-                        root.CFrame = target + Vector3.new(0, 2.5, 0)
-                        scanVoteGuis()
-                        local _, c = votePadVotes(i)
-                        if c and before and c > before then break end
-                    until os.clock() - waitStart >= 0.4 or voteActivePad ~= i
-                    if voteActivePad ~= i then break end
-                    scanVoteGuis()
-                    active, count = votePadVotes(i)
-                    if not active then stopVoteLoop(true); return end
-                    if count and best and count <= best then
-                        stale += 1
-                        if stale >= 3 then stopVoteLoop(true); return end
-                    else stale = 0; best = count or best end
-                    voteVotesCast += 1
-                    if hum.Health > 0 then hum.Health = 0 end
-                    local newChar = LocalPlayer.CharacterAdded:Wait()
-                    newChar:WaitForChild("HumanoidRootPart", 3)
-                    task.wait(0.12)
-                elseif not hum or hum.Health <= 0 then
-                    local respawned = LocalPlayer.CharacterAdded:Wait()
-                    respawned:WaitForChild("HumanoidRootPart", 3)
-                    task.wait(0.12)
-                else task.wait(0.2) end
-            end
-        end)
-    end
-
-    for i, c in ipairs(voteCards) do
-        c.card.MouseButton1Click:Connect(function()
-            if isUnloaded() then return end
-            if voteActivePad == i then stopVoteLoop() else startVoteLoop(i) end
-        end)
-    end
-
-    createActionBtn(VotePage, "⛔ Остановить Vote Dupe", Color3.fromRGB(150, 50, 50), function()
-        if voteActivePad then stopVoteLoop() end
-    end)
-
-    createSectionLabel(VotePage, "ИНФО")
-    local voteInfoLbl = Instance.new("TextLabel")
-    voteInfoLbl.Size = UDim2.new(1, 0, 0, 60)
-    voteInfoLbl.BackgroundColor3 = COL.card
-    voteInfoLbl.BorderSizePixel = 0
-    voteInfoLbl.Text = "Выбери карту выше чтобы начать дупать. Превью карт показываются если доступны."
-    voteInfoLbl.TextColor3 = COL.textDim
-    voteInfoLbl.Font = Enum.Font.Gotham
-    voteInfoLbl.TextSize = 11
-    voteInfoLbl.TextWrapped = true
-    voteInfoLbl.Parent = VotePage
-    Instance.new("UICorner", voteInfoLbl).CornerRadius = UDim.new(0, 10)
-
-    task.spawn(function()
-        while not isUnloaded() do
-            pcall(function()
-                scanVoteGuis()
-                local lobby = getVoteLobby()
-                local roundActive = (lobby == nil)
-                for i, c in ipairs(voteCards) do
-                    if roundActive then
-                        c.card.Visible = false
-                        c.map = nil; c.image = nil
-                        c.img.Image = ""; c.img.ImageTransparency = 1
-                        c.ph.Visible = true; c.ph.Text = "?"
-                        c.name.Text = ""; c.votes.Text = ""; c.status.Text = ""
-                    else
-                        c.card.Visible = true
-                        local pad = getVotePad(i)
-                        local map, votes
-                        if pad then map, votes = readVotePad(pad) end
-                        if not pad then
-                            c.map = nil
-                            c.name.Text = "UNAVAILABLE"
-                            c.img.Image = ""; c.img.ImageTransparency = 1
-                            c.ph.Visible = true; c.ph.Text = "?"
-                        elseif map then
-                            if map ~= c.map then
-                                c.map = map
-                                c.name.Text = string.upper(map)
-                                local initials = ""
-                                for w in map:gmatch("%S+") do initials = initials .. w:sub(1,1):upper() end
-                                c.ph.Text = initials:sub(1, 3)
-                            end
-                            local image = findVotePadImage(pad)
-                            if image and c.image ~= image then
-                                c.image = image
-                                c.img.Image = image
-                                c.img.ImageTransparency = 0
-                                c.ph.Visible = false
-                            elseif not image then
-                                c.img.Image = ""
-                                c.img.ImageTransparency = 1
-                                c.ph.Visible = true
-                            end
-                        else
-                            c.map = nil; c.image = nil
-                            c.name.Text = "WAITING..."
-                            c.img.Image = ""; c.img.ImageTransparency = 1
-                            c.ph.Visible = true; c.ph.Text = "?"
-                        end
-                        c.votes.Text = "votes " .. (votes or "—")
-                    end
-                end
-                if voteActivePad and (roundActive or not votePadVotes(voteActivePad)) then
-                    stopVoteLoop(true)
-                end
-            end)
-            task.wait(0.5)
-        end
-    end)
-
-    -- ============ АНИМАЦИИ UI ============
+    -- ANIMATIONS UI
     local FAV_FILE = "ses_get3_favorites.json"
     local Favorites = { Bundles = {}, Emotes = {} }
     local function loadFavorites()
@@ -3144,7 +3464,250 @@ local function buildMM2Gui()
         AnimState.SelectedAnimation = ""
     end)
 
-    -- ФИШКИ
+    -- VISUAL
+    createPageHeader(VisPage, "Визуал", "Эффекты, скины и внешний вид")
+
+    createSectionLabel(VisPage, "ШАДЕР (ОСВЕЩЕНИЕ + ФОН)")
+    createToggle(VisPage, "Shader", "Включить цветокоррекцию и фон", Config.Shader, function(v)
+        Config.Shader = v
+        saveConfig()
+        if v then applyShader() else removeShader() end
+    end)
+
+    local shaderPresets = {"Natural", "Vivid", "Cold", "Warm", "Noir", "Neon", "Night", "DarkNight", "PurpleNight", "Sunset"}
+    local shaderRow = Instance.new("Frame")
+    shaderRow.Size = UDim2.new(1, 0, 0, 0)
+    shaderRow.AutomaticSize = Enum.AutomaticSize.Y
+    shaderRow.BackgroundTransparency = 1
+    shaderRow.Parent = VisPage
+    local shaderGrid = Instance.new("UIGridLayout")
+    shaderGrid.CellSize = UDim2.new(0.5, -3, 0, 34)
+    shaderGrid.CellPadding = UDim2.new(0, 6, 0, 6)
+    shaderGrid.SortOrder = Enum.SortOrder.LayoutOrder
+    shaderGrid.Parent = shaderRow
+
+    local shaderBtns = {}
+    local function refreshShaderBtns()
+        for name, b in pairs(shaderBtns) do
+            local active = (Config.ShaderPreset == name)
+            b.BackgroundColor3 = active and COL.accent or COL.card
+            b.TextColor3 = active and Color3.fromRGB(255,255,255) or COL.text
+        end
+    end
+    for i, name in ipairs(shaderPresets) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(1, 0, 1, 0)
+        b.BackgroundColor3 = COL.card
+        b.Text = name
+        b.TextColor3 = COL.text
+        b.Font = Enum.Font.GothamMedium
+        b.TextSize = 11
+        b.BorderSizePixel = 0
+        b.LayoutOrder = i
+        b.Parent = shaderRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+        local s = Instance.new("UIStroke", b); s.Color = COL.border; s.Thickness = 1
+        shaderBtns[name] = b
+        b.MouseButton1Click:Connect(function()
+            Config.ShaderPreset = name
+            saveConfig()
+            refreshShaderBtns()
+            if Config.Shader then applyShader() end
+        end)
+    end
+    refreshShaderBtns()
+
+    createSectionLabel(VisPage, "АУРА (энергия вокруг тела)")
+    createToggle(VisPage, "Aura", "Частицы-искры + кольцо-ореол", Config.AuraEnabled, function(v)
+        Config.AuraEnabled = v
+        saveConfig()
+        if v then buildAura() else removeAura() end
+    end)
+
+    local auraStyles = {"Energy", "Fire", "Ice", "Shadow", "Gold", "Toxic", "Rainbow"}
+    local auraRow = Instance.new("Frame")
+    auraRow.Size = UDim2.new(1, 0, 0, 0)
+    auraRow.AutomaticSize = Enum.AutomaticSize.Y
+    auraRow.BackgroundTransparency = 1
+    auraRow.Parent = VisPage
+    local auraGrid = Instance.new("UIGridLayout")
+    auraGrid.CellSize = UDim2.new(0.33, -4, 0, 34)
+    auraGrid.CellPadding = UDim2.new(0, 6, 0, 6)
+    auraGrid.SortOrder = Enum.SortOrder.LayoutOrder
+    auraGrid.Parent = auraRow
+    local auraBtns = {}
+    local function refreshAuraBtns()
+        for name, b in pairs(auraBtns) do
+            local active = (Config.AuraStyle == name)
+            b.BackgroundColor3 = active and COL.accent or COL.card
+            b.TextColor3 = active and Color3.fromRGB(255,255,255) or COL.text
+        end
+    end
+    for i, name in ipairs(auraStyles) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(1, 0, 1, 0)
+        b.BackgroundColor3 = COL.card
+        b.Text = name
+        b.TextColor3 = COL.text
+        b.Font = Enum.Font.GothamMedium
+        b.TextSize = 10
+        b.BorderSizePixel = 0
+        b.LayoutOrder = i
+        b.Parent = auraRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+        local s = Instance.new("UIStroke", b); s.Color = COL.border; s.Thickness = 1
+        auraBtns[name] = b
+        b.MouseButton1Click:Connect(function()
+            Config.AuraStyle = name
+            saveConfig()
+            refreshAuraBtns()
+            if Config.AuraEnabled then buildAura() end
+        end)
+    end
+    refreshAuraBtns()
+
+    createSectionLabel(VisPage, "ОРБЫ")
+    createToggle(VisPage, "Orbs", "Орбитальные сферы с шлейфом", Config.OrbsEnabled, function(v)
+        Config.OrbsEnabled = v
+        saveConfig()
+        if v then buildOrbs() else removeOrbs() end
+    end)
+    local orbsCountInput = createInput(VisPage, "Количество орбов (1-10)")
+    orbsCountInput.Text = tostring(Config.OrbsCount)
+    orbsCountInput.FocusLost:Connect(function()
+        local n = tonumber(orbsCountInput.Text)
+        if n and n >= 1 and n <= 10 then
+            Config.OrbsCount = n
+            saveConfig()
+            if Config.OrbsEnabled then buildOrbs() end
+        else
+            orbsCountInput.Text = tostring(Config.OrbsCount)
+        end
+    end)
+
+    local orbsStyleRow = Instance.new("Frame")
+    orbsStyleRow.Size = UDim2.new(1, 0, 0, 0)
+    orbsStyleRow.AutomaticSize = Enum.AutomaticSize.Y
+    orbsStyleRow.BackgroundTransparency = 1
+    orbsStyleRow.Parent = VisPage
+    local orbsGrid = Instance.new("UIGridLayout")
+    orbsGrid.CellSize = UDim2.new(0.17, -4, 0, 32)
+    orbsGrid.CellPadding = UDim2.new(0, 5, 0, 5)
+    orbsGrid.SortOrder = Enum.SortOrder.LayoutOrder
+    orbsGrid.Parent = orbsStyleRow
+    local orbsBtns = {}
+    local function refreshOrbsBtns()
+        for name, b in pairs(orbsBtns) do
+            local active = (Config.OrbsStyle == name)
+            b.BackgroundColor3 = active and COL.accent or COL.card
+            b.TextColor3 = active and Color3.fromRGB(255,255,255) or COL.text
+        end
+    end
+    for i, name in ipairs({"Invoker", "Void", "Holy", "Toxic", "Ice", "Rainbow"}) do
+        local b = Instance.new("TextButton")
+        b.BackgroundColor3 = COL.card
+        b.Text = name
+        b.TextColor3 = COL.text
+        b.Font = Enum.Font.GothamMedium
+        b.TextSize = 10
+        b.BorderSizePixel = 0
+        b.LayoutOrder = i
+        b.Parent = orbsStyleRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+        local s = Instance.new("UIStroke", b); s.Color = COL.border; s.Thickness = 1
+        orbsBtns[name] = b
+        b.MouseButton1Click:Connect(function()
+            Config.OrbsStyle = name
+            saveConfig()
+            refreshOrbsBtns()
+            if Config.OrbsEnabled then buildOrbs() end
+        end)
+    end
+    refreshOrbsBtns()
+
+    createSectionLabel(VisPage, "НЕБЕСНЫЕ ЧЕРВИ")
+    createToggle(VisPage, "Sky Worms", "Светящиеся сегменты в небе", Config.SkyWormsEnabled, function(v)
+        Config.SkyWormsEnabled = v
+        saveConfig()
+        if v then buildSkyWorms() else removeSkyWorms() end
+    end)
+    local skyCountInput = createInput(VisPage, "Количество (5-100)")
+    skyCountInput.Text = tostring(Config.SkyWormsCount)
+    skyCountInput.FocusLost:Connect(function()
+        local n = tonumber(skyCountInput.Text)
+        if n and n >= 5 and n <= 100 then
+            Config.SkyWormsCount = n
+            saveConfig()
+            if Config.SkyWormsEnabled then buildSkyWorms() end
+        else
+            skyCountInput.Text = tostring(Config.SkyWormsCount)
+        end
+    end)
+
+    createSectionLabel(VisPage, "ВНЕШНИЙ ВИД ПЕРСОНАЖА")
+    createToggle(VisPage, "Headless", "Скрыть голову", Config.AvatarHeadless, function(v)
+        Config.AvatarHeadless = v
+        saveConfig()
+        applyAvatarVisuals()
+    end)
+    createToggle(VisPage, "Korblox", "Тёмная правая нога", Config.AvatarKorblox, function(v)
+        Config.AvatarKorblox = v
+        saveConfig()
+        applyAvatarVisuals()
+    end)
+
+    createSectionLabel(VisPage, "СКИН ОРУЖИЯ")
+    createToggle(VisPage, "Gun Skin", "Перекрасить пистолет", Config.GunSkinEnabled, function(v)
+        Config.GunSkinEnabled = v
+        saveConfig()
+        if v then setupGunSkinMonitor() else
+            if VisualState.gunskin.conn then VisualState.gunskin.conn:Disconnect(); VisualState.gunskin.conn = nil end
+            local g = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Gun")
+            restoreGunSkin(g)
+        end
+    end)
+
+    local gunSkinRow = Instance.new("Frame")
+    gunSkinRow.Size = UDim2.new(1, 0, 0, 0)
+    gunSkinRow.AutomaticSize = Enum.AutomaticSize.Y
+    gunSkinRow.BackgroundTransparency = 1
+    gunSkinRow.Parent = VisPage
+    local gunGrid = Instance.new("UIGridLayout")
+    gunGrid.CellSize = UDim2.new(0.25, -4, 0, 32)
+    gunGrid.CellPadding = UDim2.new(0, 5, 0, 5)
+    gunGrid.SortOrder = Enum.SortOrder.LayoutOrder
+    gunGrid.Parent = gunSkinRow
+    local gunColors = {
+        {name = "Green",  color = Color3.fromRGB(0, 255, 100)},
+        {name = "Red",    color = Color3.fromRGB(255, 60, 60)},
+        {name = "Blue",   color = Color3.fromRGB(60, 140, 255)},
+        {name = "Gold",   color = Color3.fromRGB(255, 215, 0)},
+        {name = "Purple", color = Color3.fromRGB(160, 80, 255)},
+        {name = "Pink",   color = Color3.fromRGB(255, 100, 200)},
+        {name = "Black",  color = Color3.fromRGB(25, 25, 25)},
+        {name = "White",  color = Color3.fromRGB(240, 240, 240)},
+    }
+    for i, def in ipairs(gunColors) do
+        local b = Instance.new("TextButton")
+        b.BackgroundColor3 = def.color
+        b.Text = ""
+        b.BorderSizePixel = 0
+        b.LayoutOrder = i
+        b.Parent = gunSkinRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+        local s = Instance.new("UIStroke", b); s.Color = COL.border; s.Thickness = 1
+        b.MouseButton1Click:Connect(function()
+            Config.GunSkinModel = def.name
+            saveConfig()
+            local g = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Gun")
+            if g and Config.GunSkinEnabled then
+                VisualState.gunskin.original = nil
+                applyGunSkin(g)
+            end
+        end)
+    end
+
+    -- FEATURES
     createPageHeader(FeaturesPage, "Фишки", "NoClip, скорость, прыжок")
     createSectionLabel(FeaturesPage, "ПЕРЕМЕЩЕНИЕ")
     createToggle(FeaturesPage, "NoClip", "Проход сквозь стены", Config.NoClip, function(v)
@@ -3162,7 +3725,7 @@ local function buildMM2Gui()
         if v and LocalPlayer.Character then coolGuySetupCharacter(LocalPlayer.Character) end
     end)
 
-    -- НАСТРОЙКИ
+    -- SETTINGS
     createPageHeader(SettingsPage, "Настройки", "Параметры скрипта")
     createSectionLabel(SettingsPage, "ПРЕДСКАЗАНИЕ")
     local predLbl = Instance.new("TextLabel")
@@ -3234,10 +3797,11 @@ local function buildMM2Gui()
         Config.PredictionMultiplier = 2.5
         Config.SpeedValue = 32
         Config.JumpValue = 120
+        Config.ScamMurdererRange = 40
+        Config.ScamMurdererAutoOff = true
         saveConfig()
     end)
 
-    -- КНОПКИ ОКНА
     local CloseBtn = Instance.new("TextButton")
     CloseBtn.Size = UDim2.new(0, 30, 0, 30)
     CloseBtn.Position = UDim2.new(1, -36, 0, 8)
@@ -3277,11 +3841,11 @@ local function buildMM2Gui()
     end)
 end
 
--- Строим GUI
+-- BUILD
 if IS_MM2 then
     buildMM2Gui()
 else
-    -- ============ МЕНЮ ДЛЯ ДРУГИХ ИГР (НЕ-MM2) — НЕЛЬЗЯ ПЕРЕТАСКИВАТЬ ============
+    -- NON-MM2 MENU
     local otherGui = Instance.new("ScreenGui")
     otherGui.Name = "ses_get3_other"
     otherGui.ResetOnSpawn = false
@@ -3410,66 +3974,6 @@ else
         end)
     end
 
-    local function makeSlider(name, parent, initialValue, callback)
-        local container = Instance.new("Frame")
-        container.Size = UDim2.new(1, -20, 0, 38)
-        container.BackgroundTransparency = 1
-        container.Parent = parent
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, 0, 0, 16)
-        label.BackgroundTransparency = 1
-        label.Text = name .. ": " .. initialValue
-        label.TextColor3 = Color3.fromRGB(220, 220, 220)
-        label.Font = Enum.Font.Gotham
-        label.TextSize = 12
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = container
-
-        local sliderBg = Instance.new("Frame")
-        sliderBg.Size = UDim2.new(1, 0, 0, 8)
-        sliderBg.Position = UDim2.new(0, 0, 0, 22)
-        sliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-        sliderBg.BorderSizePixel = 0
-        sliderBg.Parent = container
-        Instance.new("UICorner", sliderBg).CornerRadius = UDim.new(1, 0)
-
-        local fill = Instance.new("Frame")
-        fill.Size = UDim2.new(initialValue / 255, 0, 1, 0)
-        fill.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
-        fill.BorderSizePixel = 0
-        fill.Parent = sliderBg
-        Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
-
-        local dragging = false
-        local value = initialValue
-
-        local function update(input)
-            local pos = math.clamp((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X, 0, 1)
-            value = math.floor(pos * 255)
-            fill.Size = UDim2.new(pos, 0, 1, 0)
-            label.Text = name .. ": " .. value
-            callback(value)
-        end
-
-        sliderBg.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging = true
-                update(input)
-            end
-        end)
-        UserInputService.InputChanged:Connect(function(input)
-            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                update(input)
-            end
-        end)
-        UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging = false
-            end
-        end)
-    end
-
     makeToggle("ESP (новый)", "Подсветка всех игроков (Highlight)", Config.ESP, function(v)
         Config.ESP = v
         espEnabledState = v
@@ -3481,100 +3985,10 @@ else
         saveConfig()
         refreshAllESP()
     end)
-
-    local espColorLabel = Instance.new("TextLabel")
-    espColorLabel.Size = UDim2.new(1, -20, 0, 18)
-    espColorLabel.BackgroundTransparency = 1
-    espColorLabel.Text = "Цвет ESP (R/G/B):"
-    espColorLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
-    espColorLabel.Font = Enum.Font.GothamBold
-    espColorLabel.TextSize = 12
-    espColorLabel.TextXAlignment = Enum.TextXAlignment.Left
-    espColorLabel.Parent = scroll
-
-    local espColorPreview = Instance.new("Frame")
-    espColorPreview.Size = UDim2.new(1, -20, 0, 24)
-    espColorPreview.BackgroundColor3 = Color3.fromRGB(Config.ESPColor[1], Config.ESPColor[2], Config.ESPColor[3])
-    espColorPreview.BorderSizePixel = 0
-    espColorPreview.Parent = scroll
-    Instance.new("UICorner", espColorPreview).CornerRadius = UDim.new(0, 6)
-
-    local espRGB = {R = Config.ESPColor[1], G = Config.ESPColor[2], B = Config.ESPColor[3]}
-
-    local function refreshESPColor()
-        Config.ESPColor = {espRGB.R, espRGB.G, espRGB.B}
-        saveConfig()
-        espColorPreview.BackgroundColor3 = Color3.fromRGB(espRGB.R, espRGB.G, espRGB.B)
-        updateESPColor()
-    end
-
-    makeSlider("R", scroll, espRGB.R, function(v) espRGB.R = v; refreshESPColor() end)
-    makeSlider("G", scroll, espRGB.G, function(v) espRGB.G = v; refreshESPColor() end)
-    makeSlider("B", scroll, espRGB.B, function(v) espRGB.B = v; refreshESPColor() end)
-
-    local presetLabel = Instance.new("TextLabel")
-    presetLabel.Size = UDim2.new(1, -20, 0, 16)
-    presetLabel.BackgroundTransparency = 1
-    presetLabel.Text = "Готовые цвета:"
-    presetLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
-    presetLabel.Font = Enum.Font.Gotham
-    presetLabel.TextSize = 12
-    presetLabel.TextXAlignment = Enum.TextXAlignment.Left
-    presetLabel.Parent = scroll
-
-    local presetsGrid = Instance.new("Frame")
-    presetsGrid.Size = UDim2.new(1, -20, 0, 0)
-    presetsGrid.AutomaticSize = Enum.AutomaticSize.Y
-    presetsGrid.BackgroundTransparency = 1
-    presetsGrid.Parent = scroll
-    local presetsLayout = Instance.new("UIGridLayout")
-    presetsLayout.CellSize = UDim2.new(0, 55, 0, 28)
-    presetsLayout.CellPadding = UDim2.new(0, 5, 0, 5)
-    presetsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    presetsLayout.Parent = presetsGrid
-
-    local presets = {
-        {name = "Зелёный",  color = Color3.fromRGB(0, 255, 0)},
-        {name = "Красный",  color = Color3.fromRGB(255, 0, 0)},
-        {name = "Синий",    color = Color3.fromRGB(0, 150, 255)},
-        {name = "Розовый",  color = Color3.fromRGB(255, 0, 255)},
-        {name = "Жёлтый",   color = Color3.fromRGB(255, 255, 0)},
-        {name = "Белый",    color = Color3.fromRGB(255, 255, 255)},
-        {name = "Оранжевый",color = Color3.fromRGB(255, 140, 0)},
-        {name = "Фиолетовый",color = Color3.fromRGB(150, 0, 255)},
-    }
-
-    for _, preset in ipairs(presets) do
-        local btn = Instance.new("TextButton")
-        btn.BackgroundColor3 = preset.color
-        btn.BorderSizePixel = 0
-        btn.Text = ""
-        btn.AutoButtonColor = true
-        btn.Parent = presetsGrid
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
-        btn.MouseButton1Click:Connect(function()
-            espRGB.R = math.floor(preset.color.R * 255)
-            espRGB.G = math.floor(preset.color.G * 255)
-            espRGB.B = math.floor(preset.color.B * 255)
-            refreshESPColor()
-        end)
-    end
-
-    makeSlider("Заливка", scroll, math.floor(Config.ESPFillTransparency * 255), function(v)
-        Config.ESPFillTransparency = v / 255
-        saveConfig()
-        updateESPColor()
-    end)
-    makeSlider("Обводка", scroll, math.floor(Config.ESPOutlineTransparency * 255), function(v)
-        Config.ESPOutlineTransparency = v / 255
-        saveConfig()
-        updateESPColor()
-    end)
-
     makeToggle("Invisible", "Невидимость (клавиша G)", Config.Invisible, function(v)
         Config.Invisible = v; saveConfig(); updateInvisible()
     end)
-    makeToggle("God Mode", "Бессмертие — для паркуров с лазерами (Tower of Hell, Mega Parkour и т.п.)", Config.GodMode, function(v)
+    makeToggle("God Mode", "Бессмертие — для паркуров с лазерами", Config.GodMode, function(v)
         Config.GodMode = v; saveConfig(); updateGodMode()
     end)
     makeToggle("Speed Hack", "Ускорение", Config.SpeedHack, function(v)
@@ -3595,11 +4009,61 @@ else
         Config.NoClip = v; updateNoclip(); saveConfig()
     end)
 
+    local visHeader = Instance.new("TextLabel")
+    visHeader.Size = UDim2.new(1, -20, 0, 20)
+    visHeader.BackgroundTransparency = 1
+    visHeader.Text = "🎨 ВИЗУАЛ"
+    visHeader.TextColor3 = Color3.fromRGB(200, 200, 220)
+    visHeader.Font = Enum.Font.GothamBold
+    visHeader.TextSize = 12
+    visHeader.TextXAlignment = Enum.TextXAlignment.Left
+    visHeader.Parent = scroll
+
+    makeToggle("Shader", "Цветокоррекция + фон (см. пресеты)", Config.Shader, function(v)
+        Config.Shader = v
+        saveConfig()
+        if v then applyShader() else removeShader() end
+    end)
+    makeToggle("Aura", "Частицы-искры вокруг тела", Config.AuraEnabled, function(v)
+        Config.AuraEnabled = v
+        saveConfig()
+        if v then buildAura() else removeAura() end
+    end)
+    makeToggle("Orbs", "Орбитальные орбы с шлейфом", Config.OrbsEnabled, function(v)
+        Config.OrbsEnabled = v
+        saveConfig()
+        if v then buildOrbs() else removeOrbs() end
+    end)
+    makeToggle("Sky Worms", "Светящиеся сегменты в небе", Config.SkyWormsEnabled, function(v)
+        Config.SkyWormsEnabled = v
+        saveConfig()
+        if v then buildSkyWorms() else removeSkyWorms() end
+    end)
+    makeToggle("Headless", "Скрыть голову", Config.AvatarHeadless, function(v)
+        Config.AvatarHeadless = v
+        saveConfig()
+        applyAvatarVisuals()
+    end)
+    makeToggle("Korblox", "Тёмная правая нога", Config.AvatarKorblox, function(v)
+        Config.AvatarKorblox = v
+        saveConfig()
+        applyAvatarVisuals()
+    end)
+    makeToggle("Gun Skin", "Перекрасить пистолет", Config.GunSkinEnabled, function(v)
+        Config.GunSkinEnabled = v
+        saveConfig()
+        if v then setupGunSkinMonitor() else
+            if VisualState.gunskin.conn then VisualState.gunskin.conn:Disconnect(); VisualState.gunskin.conn = nil end
+            local g = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Gun")
+            restoreGunSkin(g)
+        end
+    end)
+
     local godHint = Instance.new("TextLabel")
     godHint.Size = UDim2.new(1, -20, 0, 70)
     godHint.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
     godHint.BorderSizePixel = 0
-    godHint.Text = "🛡️ God Mode (Бессмертие)\n\nФункция предназначена для паркуров с лазерами и ловушками: Tower of Hell, Mega Parkour, Escape Room и подобные. Персонаж не погибает от лазеров, шипов, падений и воды."
+    godHint.Text = "🛡️ God Mode (Бессмертие)\n\nФункция для паркуров с лазерами: Tower of Hell, Mega Parkour, Escape Room. Персонаж не погибает от лазеров, шипов, падений и воды."
     godHint.TextColor3 = Color3.fromRGB(235, 235, 240)
     godHint.Font = Enum.Font.Gotham
     godHint.TextSize = 11
@@ -3635,7 +4099,7 @@ else
     end)
 end
 
--- ============ СЛУЖЕБНЫЕ ЦИКЛЫ ============
+-- SERVICE LOOPS
 updateSpeed()
 updateJump()
 updateNoclip()
@@ -3644,6 +4108,21 @@ if not IS_MM2 then
     applyGodMode()
 end
 
+-- VISUAL EFFECTS AUTO-START
+if Config.Shader then applyShader() end
+if Config.AuraEnabled then buildAura() end
+if Config.OrbsEnabled then buildOrbs() end
+if Config.SkyWormsEnabled then buildSkyWorms() end
+if Config.GunSkinEnabled then setupGunSkinMonitor() end
+applyAvatarVisuals()
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    if Config.AuraEnabled then buildAura() end
+    if Config.OrbsEnabled then buildOrbs() end
+    applyAvatarVisuals()
+end)
+
 task.spawn(function()
     while not isUnloaded() and LocalPlayer.Parent do
         task.wait(0.25)
@@ -3651,7 +4130,7 @@ task.spawn(function()
     end
 end)
 
--- ============ МАСКОТ ============
+-- MASCOT
 if IS_MM2 and MainFrame then
     local MASCOT_URL = "https://raw.githubusercontent.com/partilaharli-boop/Hj/36e1de7e82d26901bdc890a5582b601d343aa76e/lv_0_20261005184448.png"
     local MASCOT_PRESSED_URL = "https://raw.githubusercontent.com/partilaharli-boop/Skak/refs/heads/main/phakka.png"
@@ -3813,4 +4292,4 @@ if IS_MM2 and MainFrame then
     end)
 end
 
-print("[ses_get3] v0.74 Pulse Hub Edition + Invisible + GodMode (только не-MM2) + NewESP загружен!")
+print("[ses_get3] v0.78 Pulse Hub Edition + VISUAL TAB v2 + Night Sky + Fixed Headless/Korblox + SCAM MURDERER загружен!")
