@@ -1,5 +1,5 @@
--- SES_GET3 ULTIMATE v0.80 | Pulse Hub Edition + VISUAL v2 + DRONE
--- MM2 + VoteDupe + Anim + Mascot + Invisible + GodMode + NewESP + Visual + Shahed/FPV Drone
+-- SES_GET3 ULTIMATE v0.82 | Pulse Hub Edition + VISUAL v2 + DRONE
+-- MM2 + VoteDupe + Anim + Mascot + Invisible(ORIGINAL) + GodMode + NewESP + Visual + Shahed/FPV Drone
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -179,7 +179,7 @@ local function updateNoclip()
     end
 end
 
--- ============ INVISIBLE ============
+-- ============ INVISIBLE (ORIGINAL) ============
 local invisibleParts = {}
 local invisibleConns = {}
 
@@ -352,6 +352,11 @@ local ShaderPresets = {
 }
 
 local function removeShader()
+    for _, v in ipairs(Lighting:GetChildren()) do
+        if v.Name == "ses_get3_Shader" or v.Name == "ses_get3_Bloom" or v.Name == "ses_get3_Sky" then
+            v:Destroy()
+        end
+    end
     if VisualState.shader.instance then VisualState.shader.instance:Destroy(); VisualState.shader.instance = nil end
     if VisualState.shader.bloom then VisualState.shader.bloom:Destroy(); VisualState.shader.bloom = nil end
     if VisualState.shader.sky then VisualState.shader.sky:Destroy(); VisualState.shader.sky = nil end
@@ -796,6 +801,7 @@ local function applyKorblox(char, state)
             if not p:GetAttribute("ses_origColor") then
                 p:SetAttribute("ses_origColor", p.Color)
                 p:SetAttribute("ses_origMaterial", p.Material)
+                p:SetAttribute("ses_origTransparency", p.Transparency)
             end
             p.Color = Color3.fromRGB(30, 30, 35)
             p.Material = Enum.Material.Slate
@@ -803,8 +809,10 @@ local function applyKorblox(char, state)
         else
             local oc = p:GetAttribute("ses_origColor")
             local om = p:GetAttribute("ses_origMaterial")
+            local ot = p:GetAttribute("ses_origTransparency")
             if oc then p.Color = oc end
             if om then p.Material = om end
+            if ot then p.Transparency = ot end
         end
     end
 end
@@ -883,13 +891,11 @@ end
 
 local function applyGunSkin(tool)
     if not tool or not tool:IsA("Tool") or not Config.GunSkinEnabled then return end
+    VisualState.gunskin.original = {}
     local color = GunSkinColors[Config.GunSkinModel] or GunSkinColors.Green
     for _, part in ipairs(tool:GetDescendants()) do
         if part:IsA("BasePart") then
-            if not VisualState.gunskin.original then VisualState.gunskin.original = {} end
-            if not VisualState.gunskin.original[part] then
-                VisualState.gunskin.original[part] = {Color = part.Color, Material = part.Material}
-            end
+            VisualState.gunskin.original[part] = {Color = part.Color, Material = part.Material}
             part.Color = color
             part.Material = Enum.Material.Neon
         end
@@ -920,7 +926,6 @@ end
 
 -- ============ NEW ESP ============
 local espHighlights = {}
-local espEnabledState = Config.ESP
 
 local function applyNewESP(player)
     if player == LocalPlayer then return end
@@ -929,7 +934,7 @@ local function applyNewESP(player)
             espHighlights[player]:Destroy()
             espHighlights[player] = nil
         end
-        if not espEnabledState then return end
+        if not Config.ESP then return end
         if Config.ESPTeamCheck and player.Team == LocalPlayer.Team then return end
         local hl = Instance.new("Highlight")
         hl.Name = "ESP_Highlight"
@@ -960,7 +965,7 @@ local function refreshAllESP()
         if hl and hl.Parent then hl:Destroy() end
     end
     espHighlights = {}
-    if espEnabledState then
+    if Config.ESP then
         for _, p in ipairs(Players:GetPlayers()) do
             applyNewESP(p)
         end
@@ -1042,9 +1047,11 @@ local function IsAlive(name)
 end
 local function getRoleString()
     if not IS_MM2 then return nil end
-    local d = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
-    if not d then return nil end
-    local ok, data = pcall(function() return d:InvokeServer() end)
+    local d = playerData[LocalPlayer.Name]
+    if d and d.Role then return d.Role end
+    local remote = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
+    if not remote then return nil end
+    local ok, data = pcall(function() return remote:InvokeServer() end)
     if not ok or not data then return nil end
     local me = data[LocalPlayer.Name]
     if me and me.Role then return me.Role end
@@ -1057,7 +1064,12 @@ local function isPlayerDead()
     if ok and data then return data["Dead"] == true end
     return false
 end
-local function getPing() return game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue() end
+local function getPing()
+    local ok, val = pcall(function()
+        return game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()
+    end)
+    return ok and val or 50
+end
 local function getMurdererPlayer()
     if murdererName == "" then return nil end
     return Players:FindFirstChild(murdererName)
@@ -1107,6 +1119,15 @@ local function startScamMurderer()
     scamMurdererConn = RunService.Heartbeat:Connect(function()
         if isUnloaded() then return end
         if not Config.ScamMurderer then return end
+
+        if getRoleString() == "Murderer" then
+            if scamMurdererForced and Config.ScamMurdererAutoOff then
+                Config.Invisible = false
+                scamMurdererForced = false
+                updateInvisible()
+            end
+            return
+        end
 
         local murderer = getMurdererPlayer()
         local char = LocalPlayer.Character
@@ -1284,7 +1305,10 @@ if IS_MM2 then
                     for _, coin in pairs(container:GetChildren()) do
                         if coin:GetAttribute("CoinID") == "Coin" and coin:FindFirstChild("TouchInterest") and coin.Transparency == 1 then
                             if (root.Position - coin.Position).Magnitude <= 7.5 then
-                                firetouchinterest(root, coin, 0); firetouchinterest(root, coin, 1)
+                                if firetouchinterest then
+                                    pcall(firetouchinterest, root, coin, 0)
+                                    pcall(firetouchinterest, root, coin, 1)
+                                end
                             end
                         end
                     end
@@ -1696,8 +1720,9 @@ local function grabGunAuto()
         local gunDrop = map:FindFirstChild("GunDrop"); if not gunDrop then return end
         if gunDrop:FindFirstChild("TouchInterest") and LocalPlayer.Character then
             local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if root then
-                firetouchinterest(root, gunDrop, 0); firetouchinterest(root, gunDrop, 1)
+            if root and firetouchinterest then
+                pcall(firetouchinterest, root, gunDrop, 0)
+                pcall(firetouchinterest, root, gunDrop, 1)
             end
         end
     end)
@@ -1771,8 +1796,10 @@ local function grabGunDrop()
     local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not root then return false end
     pcall(function()
-        firetouchinterest(root, gunDrop, 0)
-        firetouchinterest(root, gunDrop, 1)
+        if firetouchinterest then
+            firetouchinterest(root, gunDrop, 0)
+            firetouchinterest(root, gunDrop, 1)
+        end
     end)
     return getGun() ~= nil
 end
@@ -2405,6 +2432,11 @@ local function applyEmoteByName(name)
     PlayAnimation(id)
 end
 
+local ANIM_KEY_MAP = {
+    idle = "Idle", walk = "Walk", run = "Run", jump = "Jump",
+    fall = "Fall", climb = "Climb", swim = "Swim", swimidle = "SwimIdle", pose = "Idle3"
+}
+
 local function applyBundle(name)
     local a = Animations[name]
     if not a then return end
@@ -2468,14 +2500,24 @@ local function applyBundle(name)
     animate.Disabled = true
     for _, folderName in ipairs({"idle", "walk", "run", "jump", "fall", "climb", "swim", "swimidle", "pose"}) do
         local folder = animate:FindFirstChild(folderName)
-        if folder and a[folderName:gsub("^%l", string.upper)] then
-            local anims = folder:GetChildren()
-            for i, animObj in ipairs(anims) do
-                if animObj:IsA("Animation") then
-                    local key = folderName == "idle" and (i == 1 and "Idle" or i == 2 and "Idle2" or "Idle3") or
-                                 folderName:gsub("^%l", string.upper)
-                    if a[key] then
-                        animObj.AnimationId = "rbxassetid://" .. tostring(a[key])
+        if folder then
+            local key = ANIM_KEY_MAP[folderName]
+            if key and a[key] then
+                local anims = folder:GetChildren()
+                if folderName == "idle" then
+                    for i, animObj in ipairs(anims) do
+                        if animObj:IsA("Animation") then
+                            local idleKey = (i == 1 and "Idle") or (i == 2 and "Idle2") or "Idle3"
+                            if a[idleKey] then
+                                animObj.AnimationId = "rbxassetid://" .. tostring(a[idleKey])
+                            end
+                        end
+                    end
+                else
+                    for _, animObj in ipairs(anims) do
+                        if animObj:IsA("Animation") then
+                            animObj.AnimationId = "rbxassetid://" .. tostring(a[key])
+                        end
                     end
                 end
             end
@@ -2528,6 +2570,13 @@ local DroneState = {
     impact = Config.DroneImpact or "Fling",
     busy = false,
 }
+if DroneState.impact ~= "Kill" and DroneState.impact ~= "Fling" then
+    DroneState.impact = "Fling"
+end
+if DroneState.kind ~= "Shahed" and DroneState.kind ~= "FPV" then
+    DroneState.kind = "Shahed"
+end
+
 local droneCache = {}
 local droneTemplate, droneLoading
 local droneShahedIds = { 120141614672192, 111443745475294, 16531510943 }
@@ -2694,18 +2743,16 @@ end
 
 local function droneEnsureSounds()
     while droneSoundsLoading do task.wait() end
-    for key in pairs(droneSoundIds) do
-        if not droneSoundCache[key] then
-            droneSoundsLoading = true
-            for nextKey, list in pairs(droneSoundIds) do
-                if not droneSoundCache[nextKey] then
-                    droneSoundCache[nextKey] = dronePickSound(list)
-                end
+    droneSoundsLoading = true
+    local ok, err = pcall(function()
+        for nextKey, list in pairs(droneSoundIds) do
+            if not droneSoundCache[nextKey] then
+                droneSoundCache[nextKey] = dronePickSound(list)
             end
-            droneSoundsLoading = false
-            break
         end
-    end
+    end)
+    droneSoundsLoading = false
+    if not ok then warn("[Drone] Sound load error: " .. tostring(err)) end
 end
 
 local function droneLoadTemplate(override)
@@ -3006,6 +3053,7 @@ local function droneLaunchInternal()
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return end
     local impactMode = DroneState.impact
+    if impactMode ~= "Kill" and impactMode ~= "Fling" then impactMode = "Fling" end
     if impactMode == "Kill" and not (char:FindFirstChild("Knife") or (LocalPlayer.Backpack and LocalPlayer.Backpack:FindFirstChild("Knife"))) then
         return
     end
@@ -3203,8 +3251,8 @@ local function droneLaunchInternal()
                             if firetouchinterest then
                                 local hd = knife:FindFirstChild("Handle")
                                 if hd then
-                                    firetouchinterest(hd, th, 0)
-                                    firetouchinterest(hd, th, 1)
+                                    pcall(firetouchinterest, hd, th, 0)
+                                    pcall(firetouchinterest, hd, th, 1)
                                 end
                             end
                         end
@@ -3515,7 +3563,12 @@ local function launchDrone()
     end
     UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     UserInputService.MouseIconEnabled = true
-    task.spawn(pcall, function() require(LocalPlayer.PlayerScripts.PlayerModule):GetControls():Enable() end)
+    task.spawn(pcall, function()
+        local pm = LocalPlayer.PlayerScripts:FindFirstChild("PlayerModule")
+        if pm then
+            require(pm):GetControls():Enable()
+        end
+    end)
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if char then
@@ -3830,7 +3883,10 @@ local function buildMM2Gui()
             TweenService:Create(knob, TweenInfo.new(0.15), {
                 Position = state and UDim2.new(1, -22, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)
             }):Play()
-            if callback then pcall(callback, state) end
+            if callback then
+                local ok, err = pcall(callback, state)
+                if not ok then warn("[Toggle] " .. tostring(err)) end
+            end
         end)
     end
 
@@ -4015,7 +4071,7 @@ local function buildMM2Gui()
         if v then enableMagicBullet() else disableMagicBullet() end
     end)
     createSectionLabel(BattlePage, "СКАМ МАРДЕР")
-    createToggle(BattlePage, "Скам Мардер", "Авто-Invisible при приближении маньяка", Config.ScamMurderer, function(v)
+    createToggle(BattlePage, "Скам Мардер", "Авто-Invisible при приближении маньяка (не работает за маньяка)", Config.ScamMurderer, function(v)
         Config.ScamMurderer = v
         saveConfig()
         if v then
@@ -4100,358 +4156,357 @@ local function buildMM2Gui()
     end)
     createActionBtn(FlingPage, "⛔ Остановить", Color3.fromRGB(150, 50, 50), StopFling)
 
+    -- VOTE DUPE
+    local voteActivePad
+    local voteLoopThread
+    local voteVotesCast = 0
+    local voteCards = {}
 
--- ============ VOTE DUPE ============
-local voteActivePad
-local voteLoopThread
-local voteVotesCast = 0
-local voteCards = {}
+    local function getVoteLobby()
+        return workspace:FindFirstChild("RegularLobby") or workspace:FindFirstChild("Lobby")
+    end
+    local function getVotePad(i)
+        local lobby = getVoteLobby()
+        if not lobby then return nil end
+        return lobby:FindFirstChild("VotePad" .. i) or lobby:FindFirstChild("VotePad" .. i, true)
+    end
+    local function getVotePadCF(pad)
+        if not pad then return nil end
+        if pad:IsA("BasePart") then return pad.CFrame end
+        if pad:IsA("Model") then return pad:GetPivot() end
+        local part = pad:FindFirstChildWhichIsA("BasePart", true)
+        return part and part.CFrame
+    end
 
-local function getVoteLobby()
-    return workspace:FindFirstChild("RegularLobby") or workspace:FindFirstChild("Lobby")
-end
-local function getVotePad(i)
-    local lobby = getVoteLobby()
-    if not lobby then return nil end
-    return lobby:FindFirstChild("VotePad" .. i) or lobby:FindFirstChild("VotePad" .. i, true)
-end
-local function getVotePadCF(pad)
-    if not pad then return nil end
-    if pad:IsA("BasePart") then return pad.CFrame end
-    if pad:IsA("Model") then return pad:GetPivot() end
-    local part = pad:FindFirstChildWhichIsA("BasePart", true)
-    return part and part.CFrame
-end
-
-local voteGuisByAdornee = {}
-local function scanVoteGuis()
-    table.clear(voteGuisByAdornee)
-    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-    if not playerGui then return end
-    for _, g in ipairs(playerGui:GetDescendants()) do
-        if (g:IsA("SurfaceGui") or g:IsA("BillboardGui")) and g.Adornee then
-            local list = voteGuisByAdornee[g.Adornee] or {}
-            voteGuisByAdornee[g.Adornee] = list
-            table.insert(list, g)
-        end
-    end
-end
-local function getVotePadGuis(pad)
-    local out = {}
-    for adornee, list in pairs(voteGuisByAdornee) do
-        if adornee == pad or adornee:IsDescendantOf(pad) then
-            for _, g in ipairs(list) do table.insert(out, g) end
-        end
-    end
-    local voteInfo = pad:FindFirstChild("VoteInfoGui", true)
-    if voteInfo then table.insert(out, voteInfo) end
-    return out
-end
-local function readVotePad(pad)
-    if not pad then return nil, nil end
-    local map, votes
-    for _, g in ipairs(getVotePadGuis(pad)) do
-        if g:IsA("LayerCollector") and not g.Enabled then continue end
-        local box = g:FindFirstChild("Container", true) or g
-        local function hex(name)
-            local o = box:FindFirstChild(name, true)
-            if o and (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Text ~= "" then
-                return o.Text
-            end
-        end
-        map = map or hex("MapName")
-        local v = hex("Votes")
-        if v and (not votes or (tonumber(v:match("%d+")) or 0) > (tonumber(votes:match("%d+")) or 0)) then
-            votes = v
-        end
-    end
-    return map, votes
-end
-local function findVotePadImage(pad)
-    if not pad then return nil end
-    local best, bestScore = nil, 0
-    for _, d in ipairs(pad:GetDescendants()) do
-        local img, name = nil, d.Name:lower()
-        if d:IsA("ImageLabel") or d:IsA("ImageButton") then
-            img = d.Image
-            if img and img ~= "" and d.ImageTransparency < 0.95 then
-                local score = (name:find("map") or name:find("thumb") or name:find("preview")) and 3
-                    or ((name:find("image") or name:find("icon") or name:find("picture")) and 2 or 1)
-                if score > bestScore then best, bestScore = img, score end
-            end
-        elseif d:IsA("Decal") or d:IsA("Texture") then
-            img = d.Texture
-            if img and img ~= "" then
-                local score = (name:find("map") or name:find("thumb")) and 3 or 1
-                if score > bestScore then best, bestScore = img, score end
+    local voteGuisByAdornee = {}
+    local function scanVoteGuis()
+        voteGuisByAdornee = {}
+        local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        if not playerGui then return end
+        for _, g in ipairs(playerGui:GetDescendants()) do
+            if (g:IsA("SurfaceGui") or g:IsA("BillboardGui")) and g.Adornee then
+                local list = voteGuisByAdornee[g.Adornee] or {}
+                voteGuisByAdornee[g.Adornee] = list
+                table.insert(list, g)
             end
         end
     end
-    return best
-end
-
-createPageHeader(VotePage, "Vote Dupe Map", "Зацикливание голосования за карту")
-createSectionLabel(VotePage, "ВЫБОР КАРТЫ")
-
-local voteGrid = Instance.new("Frame")
-voteGrid.Size = UDim2.new(1, 0, 0, 0)
-voteGrid.AutomaticSize = Enum.AutomaticSize.Y
-voteGrid.BackgroundTransparency = 1
-voteGrid.Parent = VotePage
-local voteGridLayout = Instance.new("UIGridLayout")
-voteGridLayout.CellSize = UDim2.new(1, 0, 0, 76)
-voteGridLayout.CellPadding = UDim2.new(0, 0, 0, 8)
-voteGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-voteGridLayout.Parent = voteGrid
-
-for i = 1, 3 do
-    local card = Instance.new("TextButton")
-    card.Size = UDim2.new(1, 0, 1, 0)
-    card.BackgroundColor3 = COL.card
-    card.Text = ""
-    card.BorderSizePixel = 0
-    card.LayoutOrder = i
-    card.AutoButtonColor = false
-    card.ClipsDescendants = true
-    card.Parent = voteGrid
-    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
-    local cardStroke = Instance.new("UIStroke", card)
-    cardStroke.Color = COL.border
-    cardStroke.Thickness = 1
-
-    local thumb = Instance.new("Frame")
-    thumb.Size = UDim2.new(0, 76, 0, 76)
-    thumb.BackgroundColor3 = COL.card
-    thumb.ClipsDescendants = true
-    thumb.ZIndex = 2
-    thumb.Parent = card
-    Instance.new("UICorner", thumb).CornerRadius = UDim.new(0, 10)
-
-    local ph = Instance.new("TextLabel")
-    ph.Text = "?"
-    ph.Font = Enum.Font.GothamBlack
-    ph.TextSize = 22
-    ph.TextColor3 = COL.textDim
-    ph.BackgroundTransparency = 1
-    ph.Size = UDim2.fromScale(1, 1)
-    ph.ZIndex = 3
-    ph.Parent = thumb
-
-    local img = Instance.new("ImageLabel")
-    img.Size = UDim2.fromScale(1, 1)
-    img.BackgroundTransparency = 1
-    img.ScaleType = Enum.ScaleType.Crop
-    img.ImageColor3 = Color3.fromRGB(220, 220, 220)
-    img.ImageTransparency = 1
-    img.ZIndex = 4
-    img.Parent = thumb
-    Instance.new("UICorner", img).CornerRadius = UDim.new(0, 10)
-
-    local nameLbl = Instance.new("TextLabel")
-    nameLbl.Size = UDim2.new(1, -90, 0, 22)
-    nameLbl.Position = UDim2.new(0, 86, 0, 10)
-    nameLbl.BackgroundTransparency = 1
-    nameLbl.Text = "LOADING..."
-    nameLbl.TextColor3 = COL.text
-    nameLbl.Font = Enum.Font.GothamBold
-    nameLbl.TextSize = 14
-    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-    nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-    nameLbl.ZIndex = 3
-    nameLbl.Parent = card
-
-    local votesLbl = Instance.new("TextLabel")
-    votesLbl.Size = UDim2.new(1, -90, 0, 16)
-    votesLbl.Position = UDim2.new(0, 86, 0, 34)
-    votesLbl.BackgroundTransparency = 1
-    votesLbl.Text = "votes —"
-    votesLbl.TextColor3 = COL.textDim
-    votesLbl.Font = Enum.Font.Gotham
-    votesLbl.TextSize = 12
-    votesLbl.TextXAlignment = Enum.TextXAlignment.Left
-    votesLbl.ZIndex = 3
-    votesLbl.Parent = card
-
-    local statusLbl = Instance.new("TextLabel")
-    statusLbl.Size = UDim2.new(1, -90, 0, 14)
-    statusLbl.Position = UDim2.new(0, 86, 0, 54)
-    statusLbl.BackgroundTransparency = 1
-    statusLbl.Text = "idle"
-    statusLbl.TextColor3 = COL.textDim
-    statusLbl.Font = Enum.Font.GothamBold
-    statusLbl.TextSize = 11
-    statusLbl.TextXAlignment = Enum.TextXAlignment.Left
-    statusLbl.ZIndex = 3
-    statusLbl.Parent = card
-
-    voteCards[i] = {
-        card = card, stroke = cardStroke, thumb = thumb, img = img, ph = ph,
-        name = nameLbl, votes = votesLbl, status = statusLbl, image = nil, map = nil,
-    }
-
-    card.MouseEnter:Connect(function()
-        TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.cardHover}):Play()
-    end)
-    card.MouseLeave:Connect(function()
-        TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.card}):Play()
-    end)
-end
-
-local function relayoutVoteCards()
-    for i, c in ipairs(voteCards) do
-        local on = voteActivePad == i
-        TweenService:Create(c.stroke, TweenInfo.new(0.2), {
-            Color = on and COL.accent or COL.border,
-            Thickness = on and 1.5 or 1,
-        }):Play()
-        c.status.TextColor3 = on and COL.accent or COL.textDim
-        c.status.Text = on and ("voting " .. voteVotesCast) or "idle"
-    end
-end
-
-local function stopVoteLoop(silent)
-    if voteLoopThread then pcall(task.cancel, voteLoopThread); voteLoopThread = nil end
-    voteActivePad = nil
-    relayoutVoteCards()
-end
-local function votePadVotes(i)
-    local pad = getVotePad(i)
-    if not pad then return false end
-    local map, votes = readVotePad(pad)
-    if not (map and votes) then return false end
-    return true, tonumber(votes:match("%d+"))
-end
-local function startVoteLoop(i)
-    stopVoteLoop(true)
-    voteActivePad = i
-    voteVotesCast = 0
-    relayoutVoteCards()
-    voteLoopThread = task.spawn(function()
-        local best, stale = nil, 0
-        while voteActivePad == i do
-            scanVoteGuis()
-            local active, count = votePadVotes(i)
-            if not active then stopVoteLoop(true); return end
-            best = best or count
-            local char = LocalPlayer.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local target = getVotePadCF(getVotePad(i))
-            if hum and hum.Health > 0 and root and target then
-                root.CFrame = target + Vector3.new(0, 2.5, 0)
-                local before = count
-                local waitStart = os.clock()
-                repeat
-                    RunService.Heartbeat:Wait()
-                    root.CFrame = target + Vector3.new(0, 2.5, 0)
-                    scanVoteGuis()
-                    local _, c = votePadVotes(i)
-                    if c and before and c > before then break end
-                until os.clock() - waitStart >= 0.4 or voteActivePad ~= i
-                if voteActivePad ~= i then break end
-                scanVoteGuis()
-                active, count = votePadVotes(i)
-                if not active then stopVoteLoop(true); return end
-                if count and best and count <= best then
-                    stale += 1
-                    if stale >= 3 then stopVoteLoop(true); return end
-                else stale = 0; best = count or best end
-                voteVotesCast += 1
-                if hum.Health > 0 then hum.Health = 0 end
-                local newChar = LocalPlayer.CharacterAdded:Wait()
-                newChar:WaitForChild("HumanoidRootPart", 3)
-                task.wait(0.12)
-            elseif not hum or hum.Health <= 0 then
-                local respawned = LocalPlayer.CharacterAdded:Wait()
-                respawned:WaitForChild("HumanoidRootPart", 3)
-                task.wait(0.12)
-            else task.wait(0.2) end
+    local function getVotePadGuis(pad)
+        local out = {}
+        for adornee, list in pairs(voteGuisByAdornee) do
+            if adornee == pad or adornee:IsDescendantOf(pad) then
+                for _, g in ipairs(list) do table.insert(out, g) end
+            end
         end
-    end)
-end
-
-for i, c in ipairs(voteCards) do
-    c.card.MouseButton1Click:Connect(function()
-        if isUnloaded() then return end
-        if voteActivePad == i then stopVoteLoop() else startVoteLoop(i) end
-    end)
-end
-
-createActionBtn(VotePage, "⛔ Остановить Vote Dupe", Color3.fromRGB(150, 50, 50), function()
-    if voteActivePad then stopVoteLoop() end
-end)
-
-createSectionLabel(VotePage, "ИНФО")
-local voteInfoLbl = Instance.new("TextLabel")
-voteInfoLbl.Size = UDim2.new(1, 0, 0, 60)
-voteInfoLbl.BackgroundColor3 = COL.card
-voteInfoLbl.BorderSizePixel = 0
-voteInfoLbl.Text = "Выбери карту выше чтобы начать дупать. Превью карт показываются если доступны."
-voteInfoLbl.TextColor3 = COL.textDim
-voteInfoLbl.Font = Enum.Font.Gotham
-voteInfoLbl.TextSize = 11
-voteInfoLbl.TextWrapped = true
-voteInfoLbl.Parent = VotePage
-Instance.new("UICorner", voteInfoLbl).CornerRadius = UDim.new(0, 10)
-
-task.spawn(function()
-    while not isUnloaded() do
-        pcall(function()
-            scanVoteGuis()
-            local lobby = getVoteLobby()
-            local roundActive = (lobby == nil)
-            for i, c in ipairs(voteCards) do
-                if roundActive then
-                    c.card.Visible = false
-                    c.map = nil; c.image = nil
-                    c.img.Image = ""; c.img.ImageTransparency = 1
-                    c.ph.Visible = true; c.ph.Text = "?"
-                    c.name.Text = ""; c.votes.Text = ""; c.status.Text = ""
-                else
-                    c.card.Visible = true
-                    local pad = getVotePad(i)
-                    local map, votes
-                    if pad then map, votes = readVotePad(pad) end
-                    if not pad then
-                        c.map = nil
-                        c.name.Text = "UNAVAILABLE"
-                        c.img.Image = ""; c.img.ImageTransparency = 1
-                        c.ph.Visible = true; c.ph.Text = "?"
-                    elseif map then
-                        if map ~= c.map then
-                            c.map = map
-                            c.name.Text = string.upper(map)
-                            local initials = ""
-                            for w in map:gmatch("%S+") do initials = initials .. w:sub(1,1):upper() end
-                            c.ph.Text = initials:sub(1, 3)
-                        end
-                        local image = findVotePadImage(pad)
-                        if image and c.image ~= image then
-                            c.image = image
-                            c.img.Image = image
-                            c.img.ImageTransparency = 0
-                            c.ph.Visible = false
-                        elseif not image then
-                            c.img.Image = ""
-                            c.img.ImageTransparency = 1
-                            c.ph.Visible = true
-                        end
-                    else
-                        c.map = nil; c.image = nil
-                        c.name.Text = "WAITING..."
-                        c.img.Image = ""; c.img.ImageTransparency = 1
-                        c.ph.Visible = true; c.ph.Text = "?"
-                    end
-                    c.votes.Text = "votes " .. (votes or "—")
+        local voteInfo = pad:FindFirstChild("VoteInfoGui", true)
+        if voteInfo then table.insert(out, voteInfo) end
+        return out
+    end
+    local function readVotePad(pad)
+        if not pad then return nil, nil end
+        local map, votes
+        for _, g in ipairs(getVotePadGuis(pad)) do
+            if g:IsA("LayerCollector") and not g.Enabled then continue end
+            local box = g:FindFirstChild("Container", true) or g
+            local function hex(name)
+                local o = box:FindFirstChild(name, true)
+                if o and (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Text ~= "" then
+                    return o.Text
                 end
             end
-            if voteActivePad and (roundActive or not votePadVotes(voteActivePad)) then
-                stopVoteLoop(true)
+            map = map or hex("MapName")
+            local v = hex("Votes")
+            if v and (not votes or (tonumber(v:match("%d+")) or 0) > (tonumber(votes:match("%d+")) or 0)) then
+                votes = v
+            end
+        end
+        return map, votes
+    end
+    local function findVotePadImage(pad)
+        if not pad then return nil end
+        local best, bestScore = nil, 0
+        for _, d in ipairs(pad:GetDescendants()) do
+            local img, name = nil, d.Name:lower()
+            if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+                img = d.Image
+                if img and img ~= "" and d.ImageTransparency < 0.95 then
+                    local score = (name:find("map") or name:find("thumb") or name:find("preview")) and 3
+                        or ((name:find("image") or name:find("icon") or name:find("picture")) and 2 or 1)
+                    if score > bestScore then best, bestScore = img, score end
+                end
+            elseif d:IsA("Decal") or d:IsA("Texture") then
+                img = d.Texture
+                if img and img ~= "" then
+                    local score = (name:find("map") or name:find("thumb")) and 3 or 1
+                    if score > bestScore then best, bestScore = img, score end
+                end
+            end
+        end
+        return best
+    end
+
+    createPageHeader(VotePage, "Vote Dupe Map", "Зацикливание голосования за карту")
+    createSectionLabel(VotePage, "ВЫБОР КАРТЫ")
+
+    local voteGrid = Instance.new("Frame")
+    voteGrid.Size = UDim2.new(1, 0, 0, 0)
+    voteGrid.AutomaticSize = Enum.AutomaticSize.Y
+    voteGrid.BackgroundTransparency = 1
+    voteGrid.Parent = VotePage
+    local voteGridLayout = Instance.new("UIGridLayout")
+    voteGridLayout.CellSize = UDim2.new(1, 0, 0, 76)
+    voteGridLayout.CellPadding = UDim2.new(0, 0, 0, 8)
+    voteGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    voteGridLayout.Parent = voteGrid
+
+    for i = 1, 3 do
+        local card = Instance.new("TextButton")
+        card.Size = UDim2.new(1, 0, 1, 0)
+        card.BackgroundColor3 = COL.card
+        card.Text = ""
+        card.BorderSizePixel = 0
+        card.LayoutOrder = i
+        card.AutoButtonColor = false
+        card.ClipsDescendants = true
+        card.Parent = voteGrid
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+        local cardStroke = Instance.new("UIStroke", card)
+        cardStroke.Color = COL.border
+        cardStroke.Thickness = 1
+
+        local thumb = Instance.new("Frame")
+        thumb.Size = UDim2.new(0, 76, 0, 76)
+        thumb.BackgroundColor3 = COL.card
+        thumb.ClipsDescendants = true
+        thumb.ZIndex = 2
+        thumb.Parent = card
+        Instance.new("UICorner", thumb).CornerRadius = UDim.new(0, 10)
+
+        local ph = Instance.new("TextLabel")
+        ph.Text = "?"
+        ph.Font = Enum.Font.GothamBlack
+        ph.TextSize = 22
+        ph.TextColor3 = COL.textDim
+        ph.BackgroundTransparency = 1
+        ph.Size = UDim2.fromScale(1, 1)
+        ph.ZIndex = 3
+        ph.Parent = thumb
+
+        local img = Instance.new("ImageLabel")
+        img.Size = UDim2.fromScale(1, 1)
+        img.BackgroundTransparency = 1
+        img.ScaleType = Enum.ScaleType.Crop
+        img.ImageColor3 = Color3.fromRGB(220, 220, 220)
+        img.ImageTransparency = 1
+        img.ZIndex = 4
+        img.Parent = thumb
+        Instance.new("UICorner", img).CornerRadius = UDim.new(0, 10)
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Size = UDim2.new(1, -90, 0, 22)
+        nameLbl.Position = UDim2.new(0, 86, 0, 10)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Text = "LOADING..."
+        nameLbl.TextColor3 = COL.text
+        nameLbl.Font = Enum.Font.GothamBold
+        nameLbl.TextSize = 14
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLbl.ZIndex = 3
+        nameLbl.Parent = card
+
+        local votesLbl = Instance.new("TextLabel")
+        votesLbl.Size = UDim2.new(1, -90, 0, 16)
+        votesLbl.Position = UDim2.new(0, 86, 0, 34)
+        votesLbl.BackgroundTransparency = 1
+        votesLbl.Text = "votes —"
+        votesLbl.TextColor3 = COL.textDim
+        votesLbl.Font = Enum.Font.Gotham
+        votesLbl.TextSize = 12
+        votesLbl.TextXAlignment = Enum.TextXAlignment.Left
+        votesLbl.ZIndex = 3
+        votesLbl.Parent = card
+
+        local statusLbl = Instance.new("TextLabel")
+        statusLbl.Size = UDim2.new(1, -90, 0, 14)
+        statusLbl.Position = UDim2.new(0, 86, 0, 54)
+        statusLbl.BackgroundTransparency = 1
+        statusLbl.Text = "idle"
+        statusLbl.TextColor3 = COL.textDim
+        statusLbl.Font = Enum.Font.GothamBold
+        statusLbl.TextSize = 11
+        statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+        statusLbl.ZIndex = 3
+        statusLbl.Parent = card
+
+        voteCards[i] = {
+            card = card, stroke = cardStroke, thumb = thumb, img = img, ph = ph,
+            name = nameLbl, votes = votesLbl, status = statusLbl, image = nil, map = nil,
+        }
+
+        card.MouseEnter:Connect(function()
+            TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.cardHover}):Play()
+        end)
+        card.MouseLeave:Connect(function()
+            TweenService:Create(card, TweenInfo.new(0.15), {BackgroundColor3 = COL.card}):Play()
+        end)
+    end
+
+    local function relayoutVoteCards()
+        for i, c in ipairs(voteCards) do
+            local on = voteActivePad == i
+            TweenService:Create(c.stroke, TweenInfo.new(0.2), {
+                Color = on and COL.accent or COL.border,
+                Thickness = on and 1.5 or 1,
+            }):Play()
+            c.status.TextColor3 = on and COL.accent or COL.textDim
+            c.status.Text = on and ("voting " .. voteVotesCast) or "idle"
+        end
+    end
+
+    local function stopVoteLoop(silent)
+        if voteLoopThread then pcall(task.cancel, voteLoopThread); voteLoopThread = nil end
+        voteActivePad = nil
+        relayoutVoteCards()
+    end
+    local function votePadVotes(i)
+        local pad = getVotePad(i)
+        if not pad then return false end
+        local map, votes = readVotePad(pad)
+        if not (map and votes) then return false end
+        return true, tonumber(votes:match("%d+"))
+    end
+    local function startVoteLoop(i)
+        stopVoteLoop(true)
+        voteActivePad = i
+        voteVotesCast = 0
+        relayoutVoteCards()
+        voteLoopThread = task.spawn(function()
+            local best, stale = nil, 0
+            while voteActivePad == i do
+                scanVoteGuis()
+                local active, count = votePadVotes(i)
+                if not active then stopVoteLoop(true); return end
+                best = best or count
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                local target = getVotePadCF(getVotePad(i))
+                if hum and hum.Health > 0 and root and target then
+                    root.CFrame = target + Vector3.new(0, 2.5, 0)
+                    local before = count
+                    local waitStart = os.clock()
+                    repeat
+                        RunService.Heartbeat:Wait()
+                        root.CFrame = target + Vector3.new(0, 2.5, 0)
+                        scanVoteGuis()
+                        local _, c = votePadVotes(i)
+                        if c and before and c > before then break end
+                    until os.clock() - waitStart >= 0.4 or voteActivePad ~= i
+                    if voteActivePad ~= i then break end
+                    scanVoteGuis()
+                    active, count = votePadVotes(i)
+                    if not active then stopVoteLoop(true); return end
+                    if count and best and count <= best then
+                        stale += 1
+                        if stale >= 3 then stopVoteLoop(true); return end
+                    else stale = 0; best = count or best end
+                    voteVotesCast += 1
+                    if hum.Health > 0 then hum.Health = 0 end
+                    local newChar = LocalPlayer.CharacterAdded:Wait()
+                    newChar:WaitForChild("HumanoidRootPart", 3)
+                    task.wait(0.12)
+                elseif not hum or hum.Health <= 0 then
+                    local respawned = LocalPlayer.CharacterAdded:Wait()
+                    respawned:WaitForChild("HumanoidRootPart", 3)
+                    task.wait(0.12)
+                else task.wait(0.2) end
             end
         end)
-        task.wait(0.5)
     end
-end)
+
+    for i, c in ipairs(voteCards) do
+        c.card.MouseButton1Click:Connect(function()
+            if isUnloaded() then return end
+            if voteActivePad == i then stopVoteLoop() else startVoteLoop(i) end
+        end)
+    end
+
+    createActionBtn(VotePage, "⛔ Остановить Vote Dupe", Color3.fromRGB(150, 50, 50), function()
+        if voteActivePad then stopVoteLoop() end
+    end)
+
+    createSectionLabel(VotePage, "ИНФО")
+    local voteInfoLbl = Instance.new("TextLabel")
+    voteInfoLbl.Size = UDim2.new(1, 0, 0, 60)
+    voteInfoLbl.BackgroundColor3 = COL.card
+    voteInfoLbl.BorderSizePixel = 0
+    voteInfoLbl.Text = "Выбери карту выше чтобы начать дупать. Превью карт показываются если доступны."
+    voteInfoLbl.TextColor3 = COL.textDim
+    voteInfoLbl.Font = Enum.Font.Gotham
+    voteInfoLbl.TextSize = 11
+    voteInfoLbl.TextWrapped = true
+    voteInfoLbl.Parent = VotePage
+    Instance.new("UICorner", voteInfoLbl).CornerRadius = UDim.new(0, 10)
+
+    task.spawn(function()
+        while not isUnloaded() do
+            pcall(function()
+                scanVoteGuis()
+                local lobby = getVoteLobby()
+                local roundActive = (lobby == nil)
+                for i, c in ipairs(voteCards) do
+                    if roundActive then
+                        c.card.Visible = false
+                        c.map = nil; c.image = nil
+                        c.img.Image = ""; c.img.ImageTransparency = 1
+                        c.ph.Visible = true; c.ph.Text = "?"
+                        c.name.Text = ""; c.votes.Text = ""; c.status.Text = ""
+                    else
+                        c.card.Visible = true
+                        local pad = getVotePad(i)
+                        local map, votes
+                        if pad then map, votes = readVotePad(pad) end
+                        if not pad then
+                            c.map = nil
+                            c.name.Text = "UNAVAILABLE"
+                            c.img.Image = ""; c.img.ImageTransparency = 1
+                            c.ph.Visible = true; c.ph.Text = "?"
+                        elseif map then
+                            if map ~= c.map then
+                                c.map = map
+                                c.name.Text = string.upper(map)
+                                local initials = ""
+                                for w in map:gmatch("%S+") do initials = initials .. w:sub(1,1):upper() end
+                                c.ph.Text = initials:sub(1, 3)
+                            end
+                            local image = findVotePadImage(pad)
+                            if image and c.image ~= image then
+                                c.image = image
+                                c.img.Image = image
+                                c.img.ImageTransparency = 0
+                                c.ph.Visible = false
+                            elseif not image then
+                                c.img.Image = ""
+                                c.img.ImageTransparency = 1
+                                c.ph.Visible = true
+                            end
+                        else
+                            c.map = nil; c.image = nil
+                            c.name.Text = "WAITING..."
+                            c.img.Image = ""; c.img.ImageTransparency = 1
+                            c.ph.Visible = true; c.ph.Text = "?"
+                        end
+                        c.votes.Text = "votes " .. (votes or "—")
+                    end
+                end
+                if voteActivePad and (roundActive or not votePadVotes(voteActivePad)) then
+                    stopVoteLoop(true)
+                end
+            end)
+            task.wait(0.5)
+        end
+    end)
 
     -- DRONE
     createPageHeader(DronePage, "Дрон", "Shahed-136 / FPV камикадзе")
@@ -4931,95 +4986,92 @@ Fling — доступно всем ролям]]
             animSpeedInput.Text = tostring(AnimState.AnimationSpeed)
         end
     end)
--- ============ KEEP ANIMATION ON DEATH ============
-local KeepAnimEnabled = false
-local keepAnimConn = nil
-local reapplyBusy = false
 
-local function applyKeepAnim()
-    if reapplyBusy then return end
-    reapplyBusy = true
-    task.wait(1.2)
-    if not KeepAnimEnabled then reapplyBusy = false; return end
-    local char = LocalPlayer.Character
-    if not char then reapplyBusy = false; return end
-    local animate = char:FindFirstChild("Animate")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not animate or not hum then reapplyBusy = false; return end
+    -- KEEP ANIMATION ON DEATH
+    local KeepAnimEnabled = false
+    local keepAnimConn = nil
+    local reapplyBusy = false
 
-    if _KeepAnimData.bundle then
-        pcall(applyBundle, _KeepAnimData.bundle)
-    elseif _KeepAnimData.emote then
-        task.wait(0.4)
-        if KeepAnimEnabled then
-            pcall(applyEmoteByName, _KeepAnimData.emote)
-        end
-    end
-    reapplyBusy = false
-end
+    local function applyKeepAnim()
+        if reapplyBusy then return end
+        reapplyBusy = true
+        task.wait(1.2)
+        if not KeepAnimEnabled then reapplyBusy = false; return end
+        local char = LocalPlayer.Character
+        if not char then reapplyBusy = false; return end
+        local animate = char:FindFirstChild("Animate")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not animate or not hum then reapplyBusy = false; return end
 
-if not keepAnimConn then
-    keepAnimConn = LocalPlayer.CharacterAdded:Connect(function()
-        if KeepAnimEnabled then
-            task.spawn(applyKeepAnim)
-        end
-    end)
-end
-
-createSectionLabel(AnimPage, "СОХРАНЕНИЕ АНИМАЦИИ")
-createToggle(AnimPage, "Keep Animation on Death",
-    "После респавна вернуть последнюю анимацию/бандл",
-    false,
-    function(v)
-        KeepAnimEnabled = v
-        if v and (AnimState.SelectedAnimation ~= "" or AnimState.LastEmote ~= "") then
-            -- сразу подхватим то, что уже выбрано
-            if AnimState.SelectedAnimation ~= "" and not _KeepAnimData.bundle then
-                _KeepAnimData.bundle = AnimState.SelectedAnimation
-                _KeepAnimData.emote = nil
-            elseif AnimState.LastEmote ~= "" and not _KeepAnimData.emote then
-                _KeepAnimData.emote = AnimState.LastEmote
-                _KeepAnimData.bundle = nil
+        if _KeepAnimData.bundle then
+            pcall(applyBundle, _KeepAnimData.bundle)
+        elseif _KeepAnimData.emote then
+            task.wait(0.4)
+            if KeepAnimEnabled then
+                pcall(applyEmoteByName, _KeepAnimData.emote)
             end
         end
-        if not v then
-            -- не сбрасываем последнее, чтобы можно было вернуть тумблер обратно
+        reapplyBusy = false
+    end
+
+    if not keepAnimConn then
+        keepAnimConn = LocalPlayer.CharacterAdded:Connect(function()
+            if KeepAnimEnabled then
+                task.spawn(applyKeepAnim)
+            end
+        end)
+    end
+
+    createSectionLabel(AnimPage, "СОХРАНЕНИЕ АНИМАЦИИ")
+    createToggle(AnimPage, "Keep Animation on Death",
+        "После респавна вернуть последнюю анимацию/бандл",
+        false,
+        function(v)
+            KeepAnimEnabled = v
+            if v and (AnimState.SelectedAnimation ~= "" or AnimState.LastEmote ~= "") then
+                if AnimState.SelectedAnimation ~= "" and not _KeepAnimData.bundle then
+                    _KeepAnimData.bundle = AnimState.SelectedAnimation
+                    _KeepAnimData.emote = nil
+                elseif AnimState.LastEmote ~= "" and not _KeepAnimData.emote then
+                    _KeepAnimData.emote = AnimState.LastEmote
+                    _KeepAnimData.bundle = nil
+                end
+            end
+        end)
+
+    createActionBtn(AnimPage, "🔁 Применить сейчас", COL.green, function()
+        if _KeepAnimData.bundle then
+            pcall(applyBundle, _KeepAnimData.bundle)
+        elseif _KeepAnimData.emote then
+            pcall(applyEmoteByName, _KeepAnimData.emote)
+        else
+            warn("[KeepAnim] Ничего не выбрано — выбери бандл или эмоцию сначала")
         end
     end)
 
-createActionBtn(AnimPage, "🔁 Применить сейчас", COL.green, function()
-    if _KeepAnimData.bundle then
-        pcall(applyBundle, _KeepAnimData.bundle)
-    elseif _KeepAnimData.emote then
-        pcall(applyEmoteByName, _KeepAnimData.emote)
-    else
-        warn("[KeepAnim] Ничего не выбрано — выбери бандл или эмоцию сначала")
-    end
-end)
+    local keepStatusLbl = Instance.new("TextLabel")
+    keepStatusLbl.Size = UDim2.new(1, 0, 0, 42)
+    keepStatusLbl.BackgroundColor3 = COL.card
+    keepStatusLbl.BorderSizePixel = 0
+    keepStatusLbl.Text = "Сохранено: —"
+    keepStatusLbl.TextColor3 = COL.text
+    keepStatusLbl.Font = Enum.Font.GothamMedium
+    keepStatusLbl.TextSize = 12
+    keepStatusLbl.Parent = AnimPage
+    Instance.new("UICorner", keepStatusLbl).CornerRadius = UDim.new(0, 10)
 
-local keepStatusLbl = Instance.new("TextLabel")
-keepStatusLbl.Size = UDim2.new(1, 0, 0, 42)
-keepStatusLbl.BackgroundColor3 = COL.card
-keepStatusLbl.BorderSizePixel = 0
-keepStatusLbl.Text = "Сохранено: —"
-keepStatusLbl.TextColor3 = COL.text
-keepStatusLbl.Font = Enum.Font.GothamMedium
-keepStatusLbl.TextSize = 12
-keepStatusLbl.Parent = AnimPage
-Instance.new("UICorner", keepStatusLbl).CornerRadius = UDim.new(0, 10)
-
-task.spawn(function()
-    while not isUnloaded() do
-        task.wait(0.5)
-        local txt = "—"
-        if _KeepAnimData.bundle then
-            txt = "🎬 " .. _KeepAnimData.bundle
-        elseif _KeepAnimData.emote then
-            txt = "💃 " .. _KeepAnimData.emote
+    task.spawn(function()
+        while not isUnloaded() do
+            task.wait(0.5)
+            local txt = "—"
+            if _KeepAnimData.bundle then
+                txt = "🎬 " .. _KeepAnimData.bundle
+            elseif _KeepAnimData.emote then
+                txt = "💃 " .. _KeepAnimData.emote
+            end
+            keepStatusLbl.Text = "Сохранено: " .. txt
         end
-        keepStatusLbl.Text = "Сохранено: " .. txt
-    end
-end)
+    end)
     createActionBtn(AnimPage, "🔄 Сбросить анимации", COL.accent, function()
         StopEmotes()
         local char = LocalPlayer.Character
@@ -5554,7 +5606,6 @@ else
 
     makeToggle("ESP (новый)", "Подсветка всех игроков (Highlight)", Config.ESP, function(v)
         Config.ESP = v
-        espEnabledState = v
         saveConfig()
         refreshAllESP()
     end)
@@ -5743,11 +5794,13 @@ if IS_MM2 and MainFrame then
     local pressedImage = loadImage(MASCOT_PRESSED_URL, MASCOT_PRESSED_FILE)
     mascot.Image = normalImage or "rbxassetid://72818680149869"
 
-    MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-        if not mascot:GetAttribute("Falling") then
-            mascot.Visible = MainFrame.Visible
-        end
-    end)
+    if MainFrame and MainFrame.Parent then
+        MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+            if not mascot:GetAttribute("Falling") then
+                mascot.Visible = MainFrame.Visible
+            end
+        end)
+    end
     mascot.Visible = MainFrame.Visible
 
     local mascotStart = os.clock()
@@ -5835,6 +5888,7 @@ if IS_MM2 and MainFrame then
     mascot.MouseButton1Click:Connect(function()
         if busy or falling then return end
         busy = true
+        task.delay(2, function() if busy then busy = false end end)
 
         clickCount += 1
         print("[Mascot] Клик #" .. clickCount)
@@ -5869,4 +5923,4 @@ if IS_MM2 and MainFrame then
     end)
 end
 
-print("[ses_get3] v0.80 Pulse Hub Edition + VISUAL v2 + DRONE загружен!")
+print("[ses_get3] v0.82 ORIGINAL-INVISIBLE загружен!")
