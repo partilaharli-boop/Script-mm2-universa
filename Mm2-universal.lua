@@ -1,5 +1,5 @@
--- SES_GET3 ULTIMATE v0.82 | Pulse Hub Edition + VISUAL v2 + DRONE
--- MM2 + VoteDupe + Anim + Mascot + Invisible(ORIGINAL) + GodMode + NewESP + Visual + Shahed/FPV Drone
+-- SES_GET3 ULTIMATE v0.86 | PC Edition + VISUAL + DRONE + TELEPORT
+-- MM2 + VoteDupe + Anim + Mascot + Invisible + GodMode + ESP + Teleport
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -4007,7 +4007,7 @@ local function buildMM2Gui()
         return l
     end
 
-    -- TABS
+    -- TABS (Телепорт перед Настройками)
     local MainBtn     = createNavBtn("🏠", "Главная", 1);   local MainPage     = createPage(1)
     local BattleBtn   = createNavBtn("⚔️", "Бой", 2);       local BattlePage   = createPage(2)
     local FarmBtn     = createNavBtn("🛒", "Фарм", 3);      local FarmPage     = createPage(3)
@@ -4017,10 +4017,11 @@ local function buildMM2Gui()
     local VisBtn      = createNavBtn("🎨", "Визуал", 7);    local VisPage      = createPage(7)
     local DroneBtn    = createNavBtn("🚀", "Дрон", 8);      local DronePage    = createPage(8)
     local FeaturesBtn = createNavBtn("🧩", "Фишки", 9);     local FeaturesPage = createPage(9)
-    local SettingsBtn = createNavBtn("⚙️", "Настройки", 10); local SettingsPage = createPage(10)
+    local TeleportBtn = createNavBtn("📡", "Телепорт", 10); local TeleportPage = createPage(10)
+    local SettingsBtn = createNavBtn("⚙️", "Настройки", 11); local SettingsPage = createPage(11)
 
-    pages = {MainPage, BattlePage, FarmPage, FlingPage, VotePage, AnimPage, VisPage, DronePage, FeaturesPage, SettingsPage}
-    navButtons = {MainBtn, BattleBtn, FarmBtn, FlingBtn, VoteBtn, AnimBtn, VisBtn, DroneBtn, FeaturesBtn, SettingsBtn}
+    pages = {MainPage, BattlePage, FarmPage, FlingPage, VotePage, AnimPage, VisPage, DronePage, FeaturesPage, TeleportPage, SettingsPage}
+    navButtons = {MainBtn, BattleBtn, FarmBtn, FlingBtn, VoteBtn, AnimBtn, VisBtn, DroneBtn, FeaturesBtn, TeleportBtn, SettingsBtn}
     for i, b in ipairs(navButtons) do
         b.MouseButton1Click:Connect(function() selectPage(i) end)
     end
@@ -5354,6 +5355,96 @@ Fling — доступно всем ролям]]
         if v and LocalPlayer.Character then coolGuySetupCharacter(LocalPlayer.Character) end
     end)
 
+    -- TELEPORT (NEW) — без кнопки «К себе», встроенный список без отдельного скролла
+    createPageHeader(TeleportPage, "Телепорт", "Быстрое перемещение к игрокам")
+    createSectionLabel(TeleportPage, "СПИСОК ИГРОКОВ")
+
+    local tpListHolder = Instance.new("Frame")
+    tpListHolder.Size = UDim2.new(1, 0, 0, 0)
+    tpListHolder.AutomaticSize = Enum.AutomaticSize.Y
+    tpListHolder.BackgroundTransparency = 1
+    tpListHolder.Parent = TeleportPage
+    local tpList = Instance.new("UIListLayout", tpListHolder)
+    tpList.Padding = UDim.new(0, 6)
+    tpList.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local function refreshTeleportList()
+        for _, child in ipairs(tpListHolder:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local row = Instance.new("Frame")
+                row.Size = UDim2.new(1, 0, 0, 46)
+                row.BackgroundColor3 = COL.card
+                row.BorderSizePixel = 0
+                row.LayoutOrder = player.UserId
+                row.Parent = tpListHolder
+                Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+                local stroke = Instance.new("UIStroke", row)
+                stroke.Color = COL.border
+                stroke.Thickness = 1
+
+                local avatar = Instance.new("ImageLabel")
+                avatar.Size = UDim2.new(0, 32, 0, 32)
+                avatar.Position = UDim2.new(0, 7, 0.5, -16)
+                avatar.BackgroundColor3 = COL.sidebar
+                avatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=150&h=150"
+                avatar.Parent = row
+                Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
+
+                local nameLbl = Instance.new("TextLabel")
+                nameLbl.Size = UDim2.new(1, -110, 1, 0)
+                nameLbl.Position = UDim2.new(0, 45, 0, 0)
+                nameLbl.BackgroundTransparency = 1
+                nameLbl.Text = player.DisplayName or player.Name
+                nameLbl.TextColor3 = COL.text
+                nameLbl.Font = Enum.Font.GothamMedium
+                nameLbl.TextSize = 12
+                nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+                nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+                nameLbl.Parent = row
+
+                local tpBtn = Instance.new("TextButton")
+                tpBtn.Size = UDim2.new(0, 70, 0, 30)
+                tpBtn.Position = UDim2.new(1, -80, 0.5, -15)
+                tpBtn.BackgroundColor3 = COL.accent
+                tpBtn.Text = "TP"
+                tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                tpBtn.Font = Enum.Font.GothamBold
+                tpBtn.TextSize = 12
+                tpBtn.BorderSizePixel = 0
+                tpBtn.Parent = row
+                Instance.new("UICorner", tpBtn).CornerRadius = UDim.new(0, 6)
+
+                tpBtn.MouseButton1Click:Connect(function()
+                    local char = LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    local targetChar = player.Character
+                    local targetHrp = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+                    if hrp and targetHrp then
+                        hrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 3)
+                    end
+                end)
+            end
+        end
+    end
+
+    createActionBtn(TeleportPage, "🔄 Обновить список", COL.green, refreshTeleportList)
+    refreshTeleportList()
+
+    Players.PlayerAdded:Connect(function(p)
+        task.wait(0.5)
+        refreshTeleportList()
+    end)
+    Players.PlayerRemoving:Connect(function(p)
+        for _, child in ipairs(tpListHolder:GetChildren()) do
+            if child:IsA("Frame") and child.LayoutOrder == p.UserId then
+                child:Destroy()
+            end
+        end
+    end)
+
     -- SETTINGS
     createPageHeader(SettingsPage, "Настройки", "Параметры скрипта")
     createSectionLabel(SettingsPage, "ПРЕДСКАЗАНИЕ")
@@ -5768,7 +5859,7 @@ if IS_MM2 and MainFrame then
     local mascot = Instance.new("ImageButton")
     mascot.Name = "Mascot"
     mascot.AnchorPoint = Vector2.new(0.5, 0.5)
-    mascot.Size = UDim2.fromOffset(80, 80)
+    mascot.Size = UDim2.fromOffset(100, 100)
     mascot.BackgroundTransparency = 1
     mascot.ScaleType = Enum.ScaleType.Fit
     mascot.ZIndex = 1000
@@ -5823,9 +5914,9 @@ if IS_MM2 and MainFrame then
         if pressedImage then
             mascot.Image = pressedImage
         else
-            mascot.Size = UDim2.fromOffset(60, 60)
+            mascot.Size = UDim2.fromOffset(75, 75)
             task.delay(0.15, function()
-                mascot.Size = UDim2.fromOffset(80, 80)
+                mascot.Size = UDim2.fromOffset(100, 100)
             end)
         end
         task.wait(0.25)
@@ -5923,4 +6014,4 @@ if IS_MM2 and MainFrame then
     end)
 end
 
-print("[ses_get3] v0.82 ORIGINAL-INVISIBLE загружен!")
+print("[ses_get3] v0.86 + TELEPORT загружен!")
