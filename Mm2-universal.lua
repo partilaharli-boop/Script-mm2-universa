@@ -1,5 +1,5 @@
--- SES_GET3 ULTIMATE v0.86 | PC Edition + VISUAL + DRONE + TELEPORT
--- MM2 + VoteDupe + Anim + Mascot + Invisible + GodMode + ESP + Teleport
+-- SES_GET3 ULTIMATE v0.88 | PC Edition + VISUAL + DRONE + TELEPORT + CANDY FARM + FARM SPEED
+-- MM2 + VoteDupe + Anim + Mascot + Invisible + GodMode + ESP + Teleport + Jerk
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -41,6 +41,7 @@ local Config = {
     ScamMurderer = false,
     ScamMurdererRange = 40,
     ScamMurdererAutoOff = true,
+    FarmSpeed = 23, -- ДОБАВЛЕНО
 }
 local AVATAR_ID = "82234486684685"
 local FlingOnDeathEnabled = false
@@ -1176,7 +1177,7 @@ LocalPlayer.CharacterAdded:Connect(function()
     end
 end)
 
--- ============ FARM ============
+-- ============ FARM (UPDATED FOR CANDY) ============
 local farmingActive = false
 local currentCoinsCollected, maxCoinsInRound = 0, 0
 local allCoinsCollected = false
@@ -1206,12 +1207,22 @@ local function returncoincontainer()
     end
     return nil
 end
+
+-- ОБНОВЛЕНО: Теперь ищем и монеты, и конфеты (по TouchInterest и Transparency)
 local function FindNearestCoin(container)
     if not container then return nil, math.huge end
     local nearest, nearestDist = nil, math.huge
     for _, coin in pairs(container:GetChildren()) do
-        if coin:GetAttribute("CoinID") == "Coin" and coin:FindFirstChild("TouchInterest") and coin.Transparency == 1 then
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        if coin:FindFirstChild("TouchInterest") and (coin:IsA("BasePart") or coin:IsA("Model")) then
+            local isTransparent = false
+            if coin:IsA("BasePart") then
+                isTransparent = (coin.Transparency == 1)
+            else
+                local primary = coin.PrimaryPart or coin:FindFirstChildWhichIsA("BasePart")
+                if primary then isTransparent = (primary.Transparency == 1) end
+            end
+            
+            if isTransparent and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
                 local dist = (LocalPlayer.Character.HumanoidRootPart.Position - coin.Position).Magnitude
                 if dist < nearestDist then nearest, nearestDist = coin, dist end
             end
@@ -1219,6 +1230,7 @@ local function FindNearestCoin(container)
     end
     return nearest, nearestDist
 end
+
 local function enableNoclip()
     if noclipConn then return end
     noclipConn = RunService.Stepped:Connect(function()
@@ -1276,7 +1288,7 @@ end
 
 if IS_MM2 then
     ReplicatedStorage.Remotes.Gameplay.CoinCollected.OnClientEvent:Connect(function(coinType, current, max)
-        if coinType == "Coin" then
+        if coinType == "Coin" or coinType == "Candy" then
             currentCoinsCollected = tonumber(current) or 0
             maxCoinsInRound = tonumber(max) or 0
             if currentCoinsCollected >= maxCoinsInRound then
@@ -1303,8 +1315,17 @@ if IS_MM2 then
                 local container = returncoincontainer()
                 if root and container then
                     for _, coin in pairs(container:GetChildren()) do
-                        if coin:GetAttribute("CoinID") == "Coin" and coin:FindFirstChild("TouchInterest") and coin.Transparency == 1 then
-                            if (root.Position - coin.Position).Magnitude <= 7.5 then
+                        -- ОБНОВЛЕНО: сбор всех подбираемых объектов
+                        if coin:FindFirstChild("TouchInterest") and (coin:IsA("BasePart") or coin:IsA("Model")) then
+                            local isTransparent = false
+                            if coin:IsA("BasePart") then
+                                isTransparent = (coin.Transparency == 1)
+                            else
+                                local primary = coin.PrimaryPart or coin:FindFirstChildWhichIsA("BasePart")
+                                if primary then isTransparent = (primary.Transparency == 1) end
+                            end
+
+                            if isTransparent and (root.Position - coin.Position).Magnitude <= 7.5 then
                                 if firetouchinterest then
                                     pcall(firetouchinterest, root, coin, 0)
                                     pcall(firetouchinterest, root, coin, 1)
@@ -1334,7 +1355,7 @@ if IS_MM2 then
                 local container = returncoincontainer()
                 if container then
                     local coin, dist = FindNearestCoin(container)
-                    if coin and coin.Transparency == 1 and not allCoinsCollected then
+                    if coin and not allCoinsCollected then
                         if not farmingActive then startFarming() end
                         local root = LocalPlayer.Character.HumanoidRootPart
                         local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
@@ -1342,7 +1363,9 @@ if IS_MM2 then
                         local targetPos = coin.Position - Vector3.new(0, 2.5, 0)
                         local targetCF = CFrame.new(targetPos) * CFrame.Angles(math.rad(90), 0, 0)
                         enableNoclip()
-                        currentTween = TweenService:Create(root, TweenInfo.new(dist / 23, Enum.EasingStyle.Linear), {CFrame = targetCF})
+                        -- ОБНОВЛЕНО: Теперь используется Config.FarmSpeed
+                        local speedVal = Config.FarmSpeed or 23
+                        currentTween = TweenService:Create(root, TweenInfo.new(dist / speedVal, Enum.EasingStyle.Linear), {CFrame = targetCF})
                         currentTween:Play()
                         local hb
                         hb = RunService.Heartbeat:Connect(function()
@@ -1353,7 +1376,7 @@ if IS_MM2 then
                                 if hum then hum.PlatformStand = true end
                             else if hb then hb:Disconnect() end end
                         end)
-                        while coin and coin.Parent and coin:FindFirstChild("TouchInterest") and coin.Transparency == 1
+                        while coin and coin.Parent and coin:FindFirstChild("TouchInterest")
                             and not allCoinsCollected and Config.FarmCoins and isLocalAlive() do
                             RunService.Heartbeat:Wait()
                         end
@@ -2128,8 +2151,7 @@ if IS_MM2 then
 end
 
 -- ============ GUNDROP ESP ============
-if IS_MM2 then
-    local gunDropHighlight, gunDropBillboard = nil, nil
+if IS_MM2 then    local gunDropHighlight, gunDropBillboard = nil, nil
     local function clearGunDropESP()
         if gunDropHighlight then gunDropHighlight:Destroy(); gunDropHighlight = nil end
         if gunDropBillboard then gunDropBillboard:Destroy(); gunDropBillboard = nil end
@@ -2352,6 +2374,9 @@ local Emotes = {
     ['SpongeBob Dance'] = 18443245017, ['Vroom Vroom'] = 18526397037,
     ['Cartwheel'] = 10370351535, ['Sidekicks'] = 10370362157, ['Boneless'] = 5918726674,
     ['Rock Star'] = 10714400171, ['Man City Backflip'] = 13694100677,
+
+    -- ===== ДОБАВЛЕНО: анимация джерка =====
+    ['Jerk'] = 128777973, -- стандартная анимация "Jerk"
 }
 
 local Animations = {
@@ -3245,8 +3270,7 @@ local function droneLaunchInternal()
                     local char2 = LocalPlayer.Character
                     if th and char2 then
                         local hrp2 = char2:FindFirstChild("HumanoidRootPart")
-                        if hrp2 then
-                            hrp2.CFrame = CFrame.lookAt(th.Position + Vector3.new(0, 0, 1.4), th.Position)
+                        if hrp2 then                            hrp2.CFrame = CFrame.lookAt(th.Position + Vector3.new(0, 0, 1.4), th.Position)
                             pcall(function() knife:Activate() end)
                             if firetouchinterest then
                                 local hd = knife:FindFirstChild("Handle")
@@ -4007,7 +4031,7 @@ local function buildMM2Gui()
         return l
     end
 
-    -- TABS (Телепорт перед Настройками)
+    -- TABS
     local MainBtn     = createNavBtn("🏠", "Главная", 1);   local MainPage     = createPage(1)
     local BattleBtn   = createNavBtn("⚔️", "Бой", 2);       local BattlePage   = createPage(2)
     local FarmBtn     = createNavBtn("🛒", "Фарм", 3);      local FarmPage     = createPage(3)
@@ -4102,9 +4126,9 @@ local function buildMM2Gui()
     createToggle(BattlePage, "Авто-подбор пистолета", "Подбирать GunDrop", Config.AutoGrabGun, function(v) Config.AutoGrabGun = v; saveConfig() end)
 
     -- FARM
-    createPageHeader(FarmPage, "Автофарм", "Только при Сборе монет")
+    createPageHeader(FarmPage, "Автофарм", "Сбор монет и конфет")
     createSectionLabel(FarmPage, "ГЛАВНЫЙ ПЕРЕКЛЮЧАТЕЛЬ")
-    createToggle(FarmPage, "Сбор монет", "Автосбор всех монет", Config.FarmCoins, function(v)
+    createToggle(FarmPage, "Сбор монет/конфет", "Автосбор всех подбираемых предметов", Config.FarmCoins, function(v)
         Config.FarmCoins = v; saveConfig()
         if not v then
             if farmingActive then stopFarming(); restoreNormalGravity() end
@@ -4119,12 +4143,24 @@ local function buildMM2Gui()
     createToggle(FarmPage, "Флинг маньяка при смерти", "Если убил тебя", Config.FlingOnDeath, function(v)
         FlingOnDeathEnabled = v; Config.FlingOnDeath = v; saveConfig()
     end)
+    createSectionLabel(FarmPage, "СКОРОСТЬ ФАРМА")
+    local farmSpeedInput = createInput(FarmPage, "Скорость (чем больше, тем быстрее)")
+    farmSpeedInput.Text = tostring(Config.FarmSpeed)
+    farmSpeedInput.FocusLost:Connect(function()
+        local n = tonumber(farmSpeedInput.Text)
+        if n and n >= 5 and n <= 100 then
+            Config.FarmSpeed = n
+            saveConfig()
+        else
+            farmSpeedInput.Text = tostring(Config.FarmSpeed)
+        end
+    end)
     createSectionLabel(FarmPage, "СТАТИСТИКА")
     local farmStat = Instance.new("TextLabel")
     farmStat.Size = UDim2.new(1, 0, 0, 42)
     farmStat.BackgroundColor3 = COL.card
     farmStat.BorderSizePixel = 0
-    farmStat.Text = "Монет: 0 / 0"
+    farmStat.Text = "Собрано: 0 / 0"
     farmStat.TextColor3 = COL.text
     farmStat.Font = Enum.Font.GothamMedium
     farmStat.TextSize = 13
@@ -4133,7 +4169,7 @@ local function buildMM2Gui()
     task.spawn(function()
         while not isUnloaded() do
             task.wait(0.5)
-            pcall(function() farmStat.Text = "Монет: " .. currentCoinsCollected .. " / " .. maxCoinsInRound end)
+            pcall(function() farmStat.Text = "Собрано: " .. currentCoinsCollected .. " / " .. maxCoinsInRound end)
         end
     end)
 
@@ -5405,9 +5441,10 @@ Fling — доступно всем ролям]]
                 nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
                 nameLbl.Parent = row
 
+                -- ===== КНОПКА TP =====
                 local tpBtn = Instance.new("TextButton")
-                tpBtn.Size = UDim2.new(0, 70, 0, 30)
-                tpBtn.Position = UDim2.new(1, -80, 0.5, -15)
+                tpBtn.Size = UDim2.new(0, 50, 0, 30)
+                tpBtn.Position = UDim2.new(1, -160, 0.5, -15)
                 tpBtn.BackgroundColor3 = COL.accent
                 tpBtn.Text = "TP"
                 tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -5417,6 +5454,19 @@ Fling — доступно всем ролям]]
                 tpBtn.Parent = row
                 Instance.new("UICorner", tpBtn).CornerRadius = UDim.new(0, 6)
 
+                -- ===== КНОПКА JERK =====
+                local jerkBtn = Instance.new("TextButton")
+                jerkBtn.Size = UDim2.new(0, 60, 0, 30)
+                jerkBtn.Position = UDim2.new(1, -105, 0.5, -15)
+                jerkBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 200) -- фиолетовый цвет
+                jerkBtn.Text = "Jerk"
+                jerkBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                jerkBtn.Font = Enum.Font.GothamBold
+                jerkBtn.TextSize = 12
+                jerkBtn.BorderSizePixel = 0
+                jerkBtn.Parent = row
+                Instance.new("UICorner", jerkBtn).CornerRadius = UDim.new(0, 6)
+
                 tpBtn.MouseButton1Click:Connect(function()
                     local char = LocalPlayer.Character
                     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -5424,6 +5474,19 @@ Fling — доступно всем ролям]]
                     local targetHrp = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
                     if hrp and targetHrp then
                         hrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 3)
+                    end
+                end)
+
+                jerkBtn.MouseButton1Click:Connect(function()
+                    local char = LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    local targetChar = player.Character
+                    local targetHrp = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+                    if hrp and targetHrp then
+                        -- Телепорт к игроку (чуть сзади)
+                        hrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 3)
+                        -- Проигрываем анимацию джерка
+                        applyEmoteByName("Jerk")
                     end
                 end)
             end
@@ -5519,6 +5582,7 @@ Fling — доступно всем ролям]]
         Config.JumpValue = 120
         Config.ScamMurdererRange = 40
         Config.ScamMurdererAutoOff = true
+        Config.FarmSpeed = 23
         saveConfig()
     end)
 
@@ -6014,4 +6078,4 @@ if IS_MM2 and MainFrame then
     end)
 end
 
-print("[ses_get3] v0.86 + TELEPORT загружен!")
+print("[ses_get3] v0.88 + FARM SPEED загружен!")
